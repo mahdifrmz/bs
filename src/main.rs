@@ -2,8 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 type Text = Arc<Vec<char>>;
 
-const single_chars: &[char] = &['+', '-', '*', '/', '[', ']', '(', ')', '{', '}', ','];
-const equal_follow: &[char] = &['=', '>', '<', '!'];
+const SINGLE_CHARS: &[char] = &['+', '-', '*', '/', '[', ']', '(', ')', '{', '}', ',', '.'];
+const EQUAL_FOLLOW: &[char] = &['=', '>', '<', '!'];
 
 struct Lexer {
     text: Text,
@@ -11,13 +11,13 @@ struct Lexer {
     ptr: usize,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum TokenKind {
     White,
     Comment,
     Identifier,
     Number,
-    Single,
+    Single(char),
     Double,
     Error,
     EOF,
@@ -33,6 +33,7 @@ enum TokenKind {
     Return,
 }
 
+#[derive(Clone, Copy)]
 struct Token {
     from: usize,
     len: usize,
@@ -75,10 +76,11 @@ impl Lexer {
         c
     }
     fn read(&mut self) -> Token {
-        if self.ptr >= self.text.len() {
+        let c = self.peek();
+        if c == '\0' {
             return self.token(TokenKind::EOF);
         }
-        let c = self.pop();
+        self.pop();
         if c.is_whitespace() {
             while self.peek().is_whitespace() {
                 self.pop();
@@ -125,23 +127,28 @@ impl Lexer {
             }
             self.pop();
             self.token(TokenKind::Comment)
-        } else if single_chars.contains(&c) {
-            self.token(TokenKind::Single)
-        } else if equal_follow.contains(&c) {
+        } else if SINGLE_CHARS.contains(&c) {
+            self.token(TokenKind::Single(c))
+        } else if EQUAL_FOLLOW.contains(&c) {
             if self.peek() == '=' {
                 self.pop();
                 self.token(TokenKind::Double)
             } else {
-                self.token(TokenKind::Single)
+                self.token(TokenKind::Single(c))
             }
         } else {
             self.token(TokenKind::Error)
         }
     }
+    fn sync(&mut self) {
+        self.old_ptr = self.ptr
+    }
     fn next(&mut self) -> Token {
         let mut t = self.read();
+        self.sync();
         while t.is_discardable() {
-            t = self.read()
+            t = self.read();
+            self.sync();
         }
         t
     }
@@ -160,19 +167,327 @@ enum Value {
 struct VM {}
 
 impl VM {
-    fn emit(bytecode: u8) {}
-    fn rodata(bytecode: u8) {}
+    // FIXME
+    fn emit(&mut self, bytecode: u8) {
+        print!("{}:", bytecode)
+    }
+    fn rodata_number(&mut self, number: f32) -> u64 {
+        0
+    }
+    fn rodata_literal(&mut self, literal: String) -> u64 {
+        0
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum Instruction {
+    Add = 0,
+    Sub = 1,
+    Mult = 2,
+    Div = 3,
+    Eq = 4,
+    Ne = 5,
+    Ge = 6,
+    Le = 7,
+    Gt = 8,
+    Lt = 9,
+    Set = 10,
+    Get = 11,
+    Pop = 12,
+    Ret = 13,
+    Load(u64) = 14,
+    Store(u64) = 15,
+    Call(u64) = 16,
+    Konst(u64) = 17,
+    Nil = 18,
+    True = 19,
+    False = 20,
+}
+impl Instruction {
+    fn encode_params(self) -> (u8, Option<u64>) {
+        match self {
+            Instruction::Add => (0, None),
+            Instruction::Sub => (1, None),
+            Instruction::Mult => (2, None),
+            Instruction::Div => (3, None),
+            Instruction::Eq => (4, None),
+            Instruction::Ne => (5, None),
+            Instruction::Ge => (6, None),
+            Instruction::Le => (7, None),
+            Instruction::Gt => (8, None),
+            Instruction::Lt => (9, None),
+            Instruction::Set => (10, None),
+            Instruction::Get => (11, None),
+            Instruction::Pop => (12, None),
+            Instruction::Ret => (13, None),
+            Instruction::Load(o) => (14, Some(o)),
+            Instruction::Store(o) => (15, Some(o)),
+            Instruction::Call(o) => (16, Some(o)),
+            Instruction::Konst(o) => (17, Some(o)),
+            Instruction::Nil => (18, None),
+            Instruction::True => (19, None),
+            Instruction::False => (20, None),
+        }
+    }
 }
 
 struct Compiler {
     lexer: Lexer,
     vm: VM,
+    text: Text,
+    token_buffer: Option<Token>,
 }
 
 impl Compiler {
-    fn expr(pwr: u32) {}
+    fn pwr_infix(&self, op: &str) -> Option<(u32, u32)> {
+        if op == "+" || op == "-" {
+            Some((51, 52))
+        } else if op == "*" || op == "/" {
+            Some((53, 54))
+        } else if op == "." {
+            Some((59, 60))
+        } else if op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!=" {
+            Some((49, 50))
+        } else {
+            None
+        }
+    }
+    fn pwr_postfix(&self, op: &str) -> Option<(u32, ())> {
+        if op == "(" || op == "[" {
+            Some((59, ()))
+        } else {
+            None
+        }
+    }
+    fn pwr_prefix(&self, op: &str) -> Option<((), u32)> {
+        if op == "+" || op == "-" {
+            Some(((), 56))
+        } else {
+            None
+        }
+    }
+    fn token(&mut self) -> Token {
+        let t = self.lexer.next();
+        if t.is_error() {
+            panic!("LEXICAL ERROR");
+        }
+        t
+    }
+    fn pop(&mut self) -> Token {
+        if let Some(t) = self.token_buffer {
+            self.token_buffer = None;
+            t
+        } else {
+            self.token()
+        }
+    }
+    fn peek(&mut self) -> Token {
+        if let Some(t) = self.token_buffer {
+            t
+        } else {
+            let t = self.token();
+            self.token_buffer = Some(t);
+            t
+        }
+    }
+    fn encode(&self, instruction: Instruction) -> Bytecode {
+        let i = instruction.encode_params();
+        let opcode = i.0 as u8;
+        let operand = i.1 as Option<u64>;
+        let mut bytecode = Bytecode::default();
+        bytecode.bytes[0] = opcode;
+        bytecode.len = 1;
+        if let Some(mut o) = operand {
+            if o > 0xffffffff {
+                bytecode.bytes[0] = bytecode.bytes[0] | 0b_1100_0000;
+                bytecode.len = 9;
+                for i in 1..9 {
+                    bytecode.bytes[i] = (o & 0xff) as u8;
+                    o = o >> 8;
+                }
+            } else if o > 0xffff {
+                bytecode.bytes[0] = bytecode.bytes[0] | 0b_1000_0000;
+                bytecode.len = 5;
+                for i in 1..5 {
+                    bytecode.bytes[i] = (o & 0xff) as u8;
+                    o = o >> 8;
+                }
+            } else if o > 0xff {
+                bytecode.bytes[0] = bytecode.bytes[0] | 0b_0100_0000;
+                bytecode.len = 3;
+                for i in 1..3 {
+                    bytecode.bytes[i] = (o & 0xff) as u8;
+                    o = o >> 8;
+                }
+            } else {
+                bytecode.bytes[0] = bytecode.bytes[0];
+                bytecode.len = 2;
+                bytecode.bytes[1] = o as u8;
+            }
+        }
+        bytecode
+    }
+    fn emit(&mut self, instruction: Instruction) {
+        let bytecode = self.encode(instruction);
+        for i in 0..bytecode.len {
+            self.vm.emit(bytecode.bytes[i as usize])
+        }
+    }
+    fn expect(&mut self, kind: TokenKind) -> Token {
+        let token = self.pop();
+        if token.kind != kind {
+            panic!("PARSE ERROR");
+        }
+        token
+    }
+    fn compile_operator(&mut self, token: Token) -> Instruction {
+        match token.kind {
+            TokenKind::Single('+') => Instruction::Add,
+            TokenKind::Single('-') => Instruction::Sub,
+            TokenKind::Single('*') => Instruction::Mult,
+            TokenKind::Single('/') => Instruction::Div,
+            TokenKind::Single('.') => Instruction::Get,
+            TokenKind::Double => match token.text(self.text.clone()).as_str() {
+                "==" => Instruction::Eq,
+                "!=" => Instruction::Ne,
+                ">=" => Instruction::Ge,
+                "<=" => Instruction::Le,
+                "<" => Instruction::Lt,
+                ">" => Instruction::Gt,
+                _ => panic!("IMPOSSIBLE!"),
+            },
+            _ => panic!("IMPOSSIBLE!"),
+        }
+    }
+    fn atom(&mut self, token: Token) {
+        let i = match token.kind {
+            TokenKind::Number => Instruction::Konst(
+                self.vm.rodata_number(
+                    token
+                        .text(self.text.clone())
+                        .parse()
+                        .expect("INVALID NUMERIC CONSTANT"),
+                ),
+            ),
+            TokenKind::Literal => {
+                Instruction::Konst(self.vm.rodata_literal(token.text(self.text.clone())))
+            }
+            TokenKind::True => Instruction::True,
+            TokenKind::False => Instruction::False,
+            TokenKind::Nil => Instruction::Nil,
+            TokenKind::Identifier => Instruction::Load(0), // FIXME
+            _ => panic!("UNEXPECTED TOKEN"),
+        };
+        self.emit(i);
+    }
+    fn expr(&mut self) {
+        self.expr_p(0)
+    }
+    fn expr_p(&mut self, pwr: u32) {
+        let token = self.pop();
+        if let Some((_, rp)) = self.pwr_prefix(token.text(self.text.clone()).as_str()) {
+            self.expr_p(rp);
+            if token.kind == TokenKind::Single('-') {
+                let address = self.vm.rodata_number(-1.0);
+                self.emit(Instruction::Konst(address));
+                self.emit(Instruction::Mult);
+            }
+        } else if token.text(self.text.clone()).as_str() == "(" {
+            self.expr();
+            self.expect(TokenKind::Single(')'));
+        } else {
+            self.atom(token);
+        }
+
+        loop {
+            let t = self.peek();
+            match t.kind {
+                TokenKind::Single(c) => {
+                    if c == '}' || c == '{' || c == ',' || c == ')' || c == ']' {
+                        break;
+                    } else {
+                        ()
+                    }
+                }
+                TokenKind::Double => (),
+                _ => break,
+            }
+            let ttext = t.text(self.text.clone());
+            if let Some((lp, _)) = self.pwr_postfix(ttext.as_str()) {
+                if pwr > lp {
+                    break;
+                }
+                self.pop();
+                if t.kind == TokenKind::Single('(') {
+                    let argc = self.arglist();
+                    self.emit(Instruction::Call(argc));
+                } else {
+                    self.expr();
+                    self.expect(TokenKind::Single(']'));
+                    self.emit(Instruction::Set);
+                }
+            } else if let Some((lp, rp)) = self.pwr_infix(ttext.as_str()) {
+                if pwr > lp {
+                    break;
+                }
+                self.pop();
+                let i = self.compile_operator(t);
+                if i == Instruction::Get {
+                    let t = self.expect(TokenKind::Identifier);
+                    let prop = self.vm.rodata_literal(t.text(self.text.clone()));
+                    self.emit(Instruction::Konst(prop));
+                } else {
+                    self.expr_p(rp);
+                }
+                self.emit(i);
+            } else {
+                panic!("UNEXPECTED TOKEN");
+            }
+        }
+    }
+    fn arglist(&mut self) -> u64 {
+        if self.peek().kind == TokenKind::Single(')') {
+            self.pop();
+            0
+        } else {
+            let mut count = 0;
+            loop {
+                self.expr();
+                count = count + 1;
+                if self.peek().kind == TokenKind::Single(')') {
+                    break;
+                }
+                self.expect(TokenKind::Single(','));
+            }
+            self.pop();
+            count
+        }
+    }
+    fn new(text: Text, lexer: Lexer, vm: VM) -> Compiler {
+        Compiler {
+            lexer,
+            vm,
+            text,
+            token_buffer: None,
+        }
+    }
+    fn compile(&mut self) {
+        self.expr();
+    }
+}
+
+#[derive(Default)]
+struct Bytecode {
+    bytes: [u8; 9],
+    len: u8,
 }
 
 fn main() {
-    println!("Hello, world!");
+    let text: Text = Arc::new("\0".chars().collect());
+    let lexer = Lexer::new(text.clone());
+    let vm = VM {};
+    let mut compiler = Compiler::new(text, lexer, vm);
+    compiler.compile();
+    println!("")
 }
