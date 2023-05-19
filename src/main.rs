@@ -205,6 +205,7 @@ enum Instruction {
     Nil = 18,
     True = 19,
     False = 20,
+    NewArray(u64) = 21,
 }
 impl Instruction {
     fn encode_params(self) -> (u8, Option<u64>) {
@@ -230,6 +231,7 @@ impl Instruction {
             Instruction::Nil => (18, None),
             Instruction::True => (19, None),
             Instruction::False => (20, None),
+            Instruction::NewArray(o) => (21, Some(o)),
         }
     }
 }
@@ -398,6 +400,10 @@ impl Compiler {
         } else if token.text(self.text.clone()).as_str() == "(" {
             self.expr();
             self.expect(TokenKind::Single(')'));
+        } else if token.text(self.text.clone()).as_str() == "[" {
+            self.expr();
+            let count = self.explist(']');
+            self.emit(Instruction::NewArray(count));
         } else {
             self.atom(token);
         }
@@ -422,7 +428,7 @@ impl Compiler {
                 }
                 self.pop();
                 if t.kind == TokenKind::Single('(') {
-                    let argc = self.arglist();
+                    let argc = self.explist(')');
                     self.emit(Instruction::Call(argc));
                 } else {
                     self.expr();
@@ -448,8 +454,8 @@ impl Compiler {
             }
         }
     }
-    fn arglist(&mut self) -> u64 {
-        if self.peek().kind == TokenKind::Single(')') {
+    fn explist(&mut self, end: char) -> u64 {
+        if self.peek().kind == TokenKind::Single(end) {
             self.pop();
             0
         } else {
@@ -457,7 +463,7 @@ impl Compiler {
             loop {
                 self.expr();
                 count = count + 1;
-                if self.peek().kind == TokenKind::Single(')') {
+                if self.peek().kind == TokenKind::Single(end) {
                     break;
                 }
                 self.expect(TokenKind::Single(','));
