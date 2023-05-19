@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 type Text = Arc<Vec<char>>;
 
@@ -145,6 +145,32 @@ impl Lexer {
         }
         t
     }
+}
+
+enum Value {
+    String(String),
+    Array(Vec<Value>),
+    Object(HashMap<String, Value>),
+    Nil,
+    Boolean(bool),
+    Number(f32),
+    Function(u32),
+}
+
+struct VM {}
+
+impl VM {
+    fn emit(bytecode: u8) {}
+    fn rodata(bytecode: u8) {}
+}
+
+struct Compiler {
+    lexer: Lexer,
+    vm: VM,
+}
+
+impl Compiler {
+    fn expr(pwr: u32) {}
 }
 
 fn main() {
