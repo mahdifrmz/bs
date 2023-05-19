@@ -164,6 +164,7 @@ enum Value {
     Function(u32),
 }
 
+#[derive(Default)]
 struct VM {}
 
 impl VM {
@@ -177,6 +178,7 @@ impl VM {
     fn rodata_literal(&mut self, literal: String) -> u64 {
         0
     }
+    fn run(&mut self) {}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -475,6 +477,9 @@ impl Compiler {
     fn compile(&mut self) {
         self.expr();
     }
+    fn vm(&mut self) -> VM {
+        std::mem::take(&mut self.vm)
+    }
 }
 
 #[derive(Default)]
@@ -483,11 +488,25 @@ struct Bytecode {
     len: u8,
 }
 
+#[derive(Default)]
+struct BakhtScript {}
+
+impl BakhtScript {
+    fn run(&self, source: &str) {
+        let mut chars: Vec<_> = source.chars().collect();
+        chars.push('\0');
+        let text: Text = Arc::new(chars);
+        let lexer = Lexer::new(text.clone());
+        let vm = VM {};
+        let mut compiler = Compiler::new(text, lexer, vm);
+        compiler.compile();
+        let mut vm = compiler.vm();
+        vm.run();
+    }
+}
+
 fn main() {
-    let text: Text = Arc::new("\0".chars().collect());
-    let lexer = Lexer::new(text.clone());
-    let vm = VM {};
-    let mut compiler = Compiler::new(text, lexer, vm);
-    compiler.compile();
-    println!("")
+    let bs = BakhtScript::default();
+    bs.run("a + 7");
+    println!("");
 }
