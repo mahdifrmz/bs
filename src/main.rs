@@ -100,22 +100,7 @@ impl Lexer {
             while self.peek().is_ascii_alphanumeric() || c == '_' {
                 self.pop();
             }
-            self.token(TokenKind::Identifier)
-        } else if c == '\'' {
-            while self.peek() != '\'' && self.peek() != '\0' {
-                self.pop();
-            }
-            if self.peek() == '\'' {
-                self.pop();
-                self.token(TokenKind::Literal)
-            } else {
-                self.token(TokenKind::Error)
-            }
-        } else if c.is_ascii_digit() {
-            while self.peek().is_ascii_digit() {
-                self.pop();
-            }
-            let mut token = self.token(TokenKind::Number);
+            let mut token = self.token(TokenKind::Identifier);
             let tt = token.text(self.text.clone());
             if tt.as_str() == "if" {
                 token.kind = TokenKind::If;
@@ -137,6 +122,21 @@ impl Lexer {
                 token.kind = TokenKind::Let;
             }
             token
+        } else if c == '\'' {
+            while self.peek() != '\'' && self.peek() != '\0' {
+                self.pop();
+            }
+            if self.peek() == '\'' {
+                self.pop();
+                self.token(TokenKind::Literal)
+            } else {
+                self.token(TokenKind::Error)
+            }
+        } else if c.is_ascii_digit() {
+            while self.peek().is_ascii_digit() {
+                self.pop();
+            }
+            self.token(TokenKind::Number)
         } else if c == '#' {
             while self.peek() != '\n' && self.peek() != '\0' {
                 self.pop();
@@ -265,10 +265,14 @@ struct Compiler {
 
 impl Compiler {
     fn error_unexpected(&self, token: Token) -> ! {
+        let token_text = if token.kind == TokenKind::EOF {
+            "EOF".to_string()
+        } else {
+            token.text(self.text.clone())
+        };
         eprintln!(
             "Bakht Error: Unexpected token {} at {}",
-            token.text(self.text.clone()),
-            token.from
+            token_text, token.from
         );
         exit(1);
     }
@@ -451,6 +455,9 @@ impl Compiler {
             }
             let ttext = t.text(self.text.clone());
             if let Some((lp, _)) = self.pwr_postfix(ttext.as_str()) {
+                if t.kind != TokenKind::Identifier && !t.is(')') {
+                    break;
+                }
                 if pwr > lp {
                     break;
                 }
