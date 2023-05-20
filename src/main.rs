@@ -286,10 +286,8 @@ impl<V: VM> Compiler<V> {
     fn pwr_infix(&self, op: &str) -> Option<(u32, u32)> {
         if op == "+" || op == "-" {
             Some((51, 52))
-        } else if op == "*" || op == "/" {
+        } else if op == "*" || op == "/" || op == "%" {
             Some((53, 54))
-        } else if op == "." {
-            Some((59, 60))
         } else if op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!=" {
             Some((49, 50))
         } else {
@@ -297,7 +295,7 @@ impl<V: VM> Compiler<V> {
         }
     }
     fn pwr_postfix(&self, op: &str) -> Option<(u32, ())> {
-        if op == "(" || op == "[" {
+        if op == "(" || op == "[" || op == "." {
             Some((59, ()))
         } else {
             None
@@ -390,7 +388,6 @@ impl<V: VM> Compiler<V> {
             TokenKind::Single('-') => Instruction::Sub,
             TokenKind::Single('*') => Instruction::Mult,
             TokenKind::Single('/') => Instruction::Div,
-            TokenKind::Single('.') => Instruction::Get,
             TokenKind::Single('%') => Instruction::Mod,
             TokenKind::Double => match token.text(self.text.clone()).as_str() {
                 "==" => Instruction::Eq,
@@ -427,6 +424,11 @@ impl<V: VM> Compiler<V> {
     fn expr(&mut self) {
         self.expr_p(0)
     }
+    fn property(&mut self) {
+        let id = self.expect(TokenKind::Identifier);
+        let prop = self.vm.rodata_literal(id.text(self.text.clone()));
+        self.emit(Instruction::Konst(prop));
+    }
     fn expr_p(&mut self, pwr: u32) {
         let token = self.pop();
         if let Some((_, rp)) = self.pwr_prefix(token.text(self.text.clone()).as_str()) {
@@ -462,7 +464,7 @@ impl<V: VM> Compiler<V> {
             }
             let ttext = t.text(self.text.clone());
             if let Some((lp, _)) = self.pwr_postfix(ttext.as_str()) {
-                if token.kind != TokenKind::Identifier && !token.is(')') {
+                if token.kind != TokenKind::Identifier && !token.is('(') && !token.is('[') {
                     break;
                 }
                 if pwr > lp {
@@ -472,6 +474,9 @@ impl<V: VM> Compiler<V> {
                 if t.kind == TokenKind::Single('(') {
                     let argc = self.explist(')');
                     self.emit(Instruction::Call(argc));
+                } else if t.kind == TokenKind::Single('.') {
+                    self.property();
+                    self.emit(Instruction::Get)
                 } else {
                     self.expr();
                     self.expect(TokenKind::Single(']'));
@@ -483,16 +488,7 @@ impl<V: VM> Compiler<V> {
                 }
                 self.pop();
                 let i = self.compile_operator(t);
-                if i == Instruction::Get {
-                    if token.kind != TokenKind::Identifier && !t.is(')') {
-                        self.error_unexpected(t);
-                    }
-                    let t = self.expect(TokenKind::Identifier);
-                    let prop = self.vm.rodata_literal(t.text(self.text.clone()));
-                    self.emit(Instruction::Konst(prop));
-                } else {
-                    self.expr_p(rp);
-                }
+                self.expr_p(rp);
                 self.emit(i);
             } else {
                 self.error_unexpected(t);
@@ -575,6 +571,11 @@ impl<V: VM> Compiler<V> {
                 self.flush_lvalue(state);
                 self.expr();
                 self.expect(TokenKind::Single(']'));
+                state = AssignCallState::Index;
+            } else if tkn.is('.') {
+                self.pop();
+                self.flush_lvalue(state);
+                self.property();
                 state = AssignCallState::Index;
             } else if tkn.is('(') {
                 self.pop();
