@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 type Text = Arc<Vec<char>>;
 
-const SINGLE_CHARS: &[char] = &['+', '-', '*', '/', '[', ']', '(', ')', '{', '}', ',', '.'];
+const SINGLE_CHARS: &[char] = &[
+    '+', '-', '*', '/', '%', '[', ']', '(', ')', '{', '}', ',', '.',
+];
 const EQUAL_FOLLOW: &[char] = &['=', '>', '<', '!'];
 
 struct Lexer {
@@ -210,6 +212,7 @@ enum Instruction {
     True = 19,
     False = 20,
     NewArray(u64) = 21,
+    Mod = 22,
 }
 impl Instruction {
     fn encode_params(self) -> (u8, Option<u64>) {
@@ -236,6 +239,7 @@ impl Instruction {
             Instruction::True => (19, None),
             Instruction::False => (20, None),
             Instruction::NewArray(o) => (21, Some(o)),
+            Instruction::Mod => (22, None),
         }
     }
 }
@@ -356,6 +360,7 @@ impl Compiler {
             TokenKind::Single('*') => Instruction::Mult,
             TokenKind::Single('/') => Instruction::Div,
             TokenKind::Single('.') => Instruction::Get,
+            TokenKind::Single('%') => Instruction::Mod,
             TokenKind::Double => match token.text(self.text.clone()).as_str() {
                 "==" => Instruction::Eq,
                 "!=" => Instruction::Ne,
