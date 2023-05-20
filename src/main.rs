@@ -44,13 +44,16 @@ struct Token {
 
 impl Token {
     fn is_discardable(&self) -> bool {
-        return self.kind == TokenKind::White || self.kind == TokenKind::Comment;
+        self.kind == TokenKind::White || self.kind == TokenKind::Comment
     }
     fn is_error(&self) -> bool {
-        return self.kind == TokenKind::Error;
+        self.kind == TokenKind::Error
+    }
+    fn is(&self, c: char) -> bool {
+        self.kind == TokenKind::Single(c)
     }
     fn text(&self, text: Text) -> String {
-        return String::from_iter(text[self.from..self.from + self.len].iter());
+        String::from_iter(text[self.from..self.from + self.len].iter())
     }
 }
 
@@ -98,11 +101,15 @@ impl Lexer {
             }
             self.token(TokenKind::Identifier)
         } else if c == '\'' {
-            while self.peek() != '\'' {
+            while self.peek() != '\'' && self.peek() != '\0' {
                 self.pop();
             }
-            self.pop();
-            self.token(TokenKind::Literal)
+            if self.peek() == '\'' {
+                self.pop();
+                self.token(TokenKind::Literal)
+            } else {
+                panic!("LEXICAL ERROR");
+            }
         } else if c.is_ascii_digit() {
             while self.peek().is_ascii_digit() {
                 self.pop();
@@ -128,10 +135,12 @@ impl Lexer {
             }
             token
         } else if c == '#' {
-            while self.peek() != '\n' {
+            while self.peek() != '\n' && self.peek() != '\0' {
                 self.pop();
             }
-            self.pop();
+            if self.peek() == '\n' {
+                self.pop();
+            }
             self.token(TokenKind::Comment)
         } else if SINGLE_CHARS.contains(&c) {
             self.token(TokenKind::Single(c))
@@ -489,10 +498,100 @@ impl Compiler {
         }
     }
     fn compile(&mut self) {
-        self.expr();
+        self.block(TokenKind::EOF)
     }
     fn vm(&mut self) -> VM {
         std::mem::take(&mut self.vm)
+    }
+    fn flush_lvalue(&mut self, state: AssignCallState) {
+        if let AssignCallState::Identifier(address) = state {
+            self.emit(Instruction::Load(address));
+        } else if state == AssignCallState::Index {
+            self.emit(Instruction::Get);
+        }
+    }
+    fn assign_call(&mut self) {
+        let tkn = self.pop();
+        let mut state = if tkn.is('(') {
+            self.expr();
+            self.expect(TokenKind::Single(')'));
+            AssignCallState::InitialRvalue
+        } else if tkn.is('[') {
+            let count = self.explist(']');
+            self.emit(Instruction::NewArray(count));
+            AssignCallState::InitialRvalue
+        } else if tkn.kind == TokenKind::Identifier {
+            AssignCallState::Identifier(0) // FIXME
+        } else {
+            panic!("UNEXPECTED TOKEN");
+        };
+
+        loop {
+            let tkn = self.pop();
+            if tkn.is('=') {
+                if state.endable() {
+                    self.expr();
+                    let i = if let AssignCallState::Identifier(address) = state {
+                        Instruction::Store(address)
+                    } else {
+                        Instruction::Set
+                    };
+                    self.emit(i);
+                    break;
+                } else {
+                    panic!("UNEXPECTED TOKEN")
+                }
+            } else if tkn.is('[') {
+                self.flush_lvalue(state);
+                self.expr();
+                self.expect(TokenKind::Single(']'));
+                state = AssignCallState::Index;
+            } else if tkn.is('(') {
+                self.flush_lvalue(state);
+                let count = self.explist(')');
+                self.emit(Instruction::Call(count));
+                state = AssignCallState::Call;
+            } else {
+                if state == AssignCallState::Call {
+                    break;
+                } else {
+                    panic!("UNEXPECTED TOKEN");
+                }
+            }
+        }
+    }
+    fn block(&mut self, end: TokenKind) {
+        // TODO: new scope
+        while self.peek().kind != end {
+            println!("STMT");
+            self.stmt();
+        }
+        // TODO: close scope
+        self.expect(end);
+    }
+    fn stmt(&mut self) {
+        if self.peek().is('{') {
+            self.block(TokenKind::Single('}'));
+        } else {
+            self.assign_call();
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+enum AssignCallState {
+    InitialRvalue,
+    Call,
+    Identifier(u64),
+    Index,
+}
+
+impl AssignCallState {
+    fn endable(&self) -> bool {
+        match self {
+            AssignCallState::InitialRvalue | AssignCallState::Call => false,
+            AssignCallState::Identifier(_) | AssignCallState::Index => true,
+        }
     }
 }
 
@@ -519,6 +618,5 @@ impl BakhtScript {
 
 fn main() {
     let bs = BakhtScript::default();
-    bs.run("a([7,1])");
-    println!("");
+    bs.run(std::fs::read_to_string("./source.bs").unwrap().as_str());
 }
