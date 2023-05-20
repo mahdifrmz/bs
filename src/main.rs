@@ -68,7 +68,11 @@ impl Lexer {
         }
     }
     fn peek(&mut self) -> char {
-        self.text[self.ptr]
+        if self.ptr >= self.text.len() {
+            '\0'
+        } else {
+            self.text[self.ptr]
+        }
     }
     fn pop(&mut self) -> char {
         let c = self.peek();
@@ -364,8 +368,8 @@ impl Compiler {
             _ => panic!("IMPOSSIBLE!"),
         }
     }
-    fn atom(&mut self, token: Token) {
-        let i = match token.kind {
+    fn compile_atom(&mut self, token: Token) -> Instruction {
+        match token.kind {
             TokenKind::Number => Instruction::Konst(
                 self.vm.rodata_number(
                     token
@@ -382,8 +386,7 @@ impl Compiler {
             TokenKind::Nil => Instruction::Nil,
             TokenKind::Identifier => Instruction::Load(0), // FIXME
             _ => panic!("UNEXPECTED TOKEN"),
-        };
-        self.emit(i);
+        }
     }
     fn expr(&mut self) {
         self.expr_p(0)
@@ -401,11 +404,11 @@ impl Compiler {
             self.expr();
             self.expect(TokenKind::Single(')'));
         } else if token.text(self.text.clone()).as_str() == "[" {
-            self.expr();
             let count = self.explist(']');
             self.emit(Instruction::NewArray(count));
         } else {
-            self.atom(token);
+            let i = self.compile_atom(token);
+            self.emit(i);
         }
 
         loop {
@@ -499,9 +502,7 @@ struct BakhtScript {}
 
 impl BakhtScript {
     fn run(&self, source: &str) {
-        let mut chars: Vec<_> = source.chars().collect();
-        chars.push('\0');
-        let text: Text = Arc::new(chars);
+        let text: Text = Arc::new(source.chars().collect());
         let lexer = Lexer::new(text.clone());
         let vm = VM {};
         let mut compiler = Compiler::new(text, lexer, vm);
@@ -513,6 +514,6 @@ impl BakhtScript {
 
 fn main() {
     let bs = BakhtScript::default();
-    bs.run("a + 7");
+    bs.run("a([7,1])");
     println!("");
 }
