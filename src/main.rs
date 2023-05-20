@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, process::exit, sync::Arc};
 
 type Text = Arc<Vec<char>>;
 
@@ -108,7 +108,7 @@ impl Lexer {
                 self.pop();
                 self.token(TokenKind::Literal)
             } else {
-                panic!("LEXICAL ERROR");
+                self.token(TokenKind::Error)
             }
         } else if c.is_ascii_digit() {
             while self.peek().is_ascii_digit() {
@@ -261,6 +261,14 @@ struct Compiler {
 }
 
 impl Compiler {
+    fn error_unexpected(&self, token: Token) -> ! {
+        eprintln!(
+            "Bakht Error: Unexpected token {} at {}",
+            token.text(self.text.clone()),
+            token.from
+        );
+        exit(1);
+    }
     fn pwr_infix(&self, op: &str) -> Option<(u32, u32)> {
         if op == "+" || op == "-" {
             Some((51, 52))
@@ -358,7 +366,7 @@ impl Compiler {
     fn expect(&mut self, kind: TokenKind) -> Token {
         let token = self.pop();
         if token.kind != kind {
-            panic!("PARSE ERROR");
+            self.error_unexpected(token);
         }
         token
     }
@@ -399,7 +407,7 @@ impl Compiler {
             TokenKind::False => Instruction::False,
             TokenKind::Nil => Instruction::Nil,
             TokenKind::Identifier => Instruction::Load(0), // FIXME
-            _ => panic!("UNEXPECTED TOKEN"),
+            _ => self.error_unexpected(token),
         }
     }
     fn expr(&mut self) {
@@ -467,7 +475,7 @@ impl Compiler {
                 }
                 self.emit(i);
             } else {
-                panic!("UNEXPECTED TOKEN");
+                self.error_unexpected(t);
             }
         }
     }
@@ -523,7 +531,7 @@ impl Compiler {
         } else if tkn.kind == TokenKind::Identifier {
             AssignCallState::Identifier(0) // FIXME
         } else {
-            panic!("UNEXPECTED TOKEN");
+            self.error_unexpected(tkn);
         };
 
         loop {
@@ -539,7 +547,7 @@ impl Compiler {
                     self.emit(i);
                     break;
                 } else {
-                    panic!("UNEXPECTED TOKEN")
+                    self.error_unexpected(tkn);
                 }
             } else if tkn.is('[') {
                 self.flush_lvalue(state);
@@ -555,7 +563,7 @@ impl Compiler {
                 if state == AssignCallState::Call {
                     break;
                 } else {
-                    panic!("UNEXPECTED TOKEN");
+                    self.error_unexpected(tkn);
                 }
             }
         }
