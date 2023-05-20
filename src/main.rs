@@ -24,6 +24,7 @@ enum TokenKind {
     Error,
     EOF,
     Literal,
+    Let,
     // keywords
     If,
     Else,
@@ -132,6 +133,8 @@ impl Lexer {
                 token.kind = TokenKind::Nil;
             } else if tt.as_str() == "return" {
                 token.kind = TokenKind::Return;
+            } else if tt.as_str() == "let" {
+                token.kind = TokenKind::Let;
             }
             token
         } else if c == '#' {
@@ -406,7 +409,7 @@ impl Compiler {
             TokenKind::True => Instruction::True,
             TokenKind::False => Instruction::False,
             TokenKind::Nil => Instruction::Nil,
-            TokenKind::Identifier => Instruction::Load(0), // FIXME
+            TokenKind::Identifier => Instruction::Load(0), // TODO: fetch id
             _ => self.error_unexpected(token),
         }
     }
@@ -529,14 +532,15 @@ impl Compiler {
             self.emit(Instruction::NewArray(count));
             AssignCallState::InitialRvalue
         } else if tkn.kind == TokenKind::Identifier {
-            AssignCallState::Identifier(0) // FIXME
+            AssignCallState::Identifier(0) // TODO: fetch id
         } else {
             self.error_unexpected(tkn);
         };
 
         loop {
-            let tkn = self.pop();
+            let tkn = self.peek();
             if tkn.is('=') {
+                self.pop();
                 if state.endable() {
                     self.expr();
                     let i = if let AssignCallState::Identifier(address) = state {
@@ -550,11 +554,13 @@ impl Compiler {
                     self.error_unexpected(tkn);
                 }
             } else if tkn.is('[') {
+                self.pop();
                 self.flush_lvalue(state);
                 self.expr();
                 self.expect(TokenKind::Single(']'));
                 state = AssignCallState::Index;
             } else if tkn.is('(') {
+                self.pop();
                 self.flush_lvalue(state);
                 let count = self.explist(')');
                 self.emit(Instruction::Call(count));
@@ -571,15 +577,31 @@ impl Compiler {
     fn block(&mut self, end: TokenKind) {
         // TODO: new scope
         while self.peek().kind != end {
-            println!("STMT");
             self.stmt();
         }
         // TODO: close scope
         self.expect(end);
     }
+    fn var_decl(&mut self) {
+        let id = self.expect(TokenKind::Identifier);
+        // TODO: save id
+        if self.peek().is('=') {
+            self.pop();
+            self.expr();
+        } else {
+            self.emit(Instruction::Nil)
+        }
+    }
     fn stmt(&mut self) {
         if self.peek().is('{') {
             self.block(TokenKind::Single('}'));
+        } else if self.peek().kind == TokenKind::Let {
+            self.pop();
+            self.var_decl();
+            while self.peek().is(',') {
+                self.pop();
+                self.var_decl();
+            }
         } else {
             self.assign_call();
         }
