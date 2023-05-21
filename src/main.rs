@@ -36,7 +36,7 @@ enum TokenKind {
     Return,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Token {
     from: usize,
     len: usize,
@@ -263,11 +263,14 @@ impl Instruction {
     }
 }
 
+type Scope = HashMap<String, usize>;
+
 struct Compiler<V: VM> {
     lexer: Lexer,
     vm: V,
     text: Text,
     token_buffer: Option<Token>,
+    scopes: Vec<Scope>,
 }
 
 impl<V: VM> Compiler<V> {
@@ -417,7 +420,7 @@ impl<V: VM> Compiler<V> {
             TokenKind::True => Instruction::True,
             TokenKind::False => Instruction::False,
             TokenKind::Nil => Instruction::Nil,
-            TokenKind::Identifier => Instruction::Load(0), // TODO: fetch id
+            TokenKind::Identifier => Instruction::Load(self.get_id(token)),
             _ => self.error_unexpected(token),
         }
     }
@@ -519,6 +522,7 @@ impl<V: VM> Compiler<V> {
             vm,
             text,
             token_buffer: None,
+            scopes: vec![Scope::default()],
         }
     }
     fn compile(&mut self) {
@@ -528,11 +532,22 @@ impl<V: VM> Compiler<V> {
         self.vm
     }
     fn flush_lvalue(&mut self, state: AssignCallState) {
-        if let AssignCallState::Identifier(address) = state {
-            self.emit(Instruction::Load(address));
+        if let AssignCallState::Identifier(token) = state {
+            let idx = self.get_id(token);
+            self.emit(Instruction::Load(idx));
         } else if state == AssignCallState::Index {
             self.emit(Instruction::Get);
         }
+    }
+    fn get_token_text(&self, token: Token) -> String {
+        token.text(self.text.clone())
+    }
+    fn get_id(&mut self, token: Token) -> usize {
+        let name = self.get_token_text(token);
+        *self.curscope().get(&name).unwrap_or_else(|| {
+            eprintln!("unknown identifier '{}' at {}", name, token.from);
+            exit(1);
+        })
     }
     fn assign_call(&mut self) {
         let tkn = self.pop();
@@ -545,7 +560,7 @@ impl<V: VM> Compiler<V> {
             self.emit(Instruction::NewArray(count));
             AssignCallState::InitialRvalue
         } else if tkn.kind == TokenKind::Identifier {
-            AssignCallState::Identifier(0) // TODO: fetch id
+            AssignCallState::Identifier(tkn)
         } else {
             self.error_unexpected(tkn);
         };
@@ -556,8 +571,8 @@ impl<V: VM> Compiler<V> {
                 self.pop();
                 if state.endable() {
                     self.expr();
-                    let i = if let AssignCallState::Identifier(address) = state {
-                        Instruction::Store(address)
+                    let i = if let AssignCallState::Identifier(token) = state {
+                        Instruction::Store(self.get_id(token))
                     } else {
                         Instruction::Set
                     };
@@ -593,16 +608,23 @@ impl<V: VM> Compiler<V> {
         }
     }
     fn block(&mut self, end: TokenKind) {
-        // TODO: new scope
+        self.scopes.push(Scope::default());
         while self.peek().kind != end {
             self.stmt();
         }
-        // TODO: close scope
+        self.scopes.pop();
         self.expect(end);
+    }
+    fn curscope<'a>(&'a mut self) -> &'a mut Scope {
+        self.scopes.last_mut().unwrap()
+    }
+    fn register_decl(&mut self, name: String) {
+        let idx = self.curscope().len();
+        self.curscope().insert(name, idx);
     }
     fn var_decl(&mut self) {
         let id = self.expect(TokenKind::Identifier);
-        // TODO: save id
+        self.register_decl(id.text(self.text.clone()));
         if self.peek().is('=') {
             self.pop();
             self.expr();
@@ -630,7 +652,7 @@ impl<V: VM> Compiler<V> {
 enum AssignCallState {
     InitialRvalue,
     Call,
-    Identifier(usize),
+    Identifier(Token),
     Index,
 }
 
@@ -666,7 +688,11 @@ impl BakhtScript {
 
 fn main() {
     let bs = BakhtScript::default();
-    bs.run(std::fs::read_to_string("./source.bs").unwrap().as_str());
+    bs.run(
+        std::fs::read_to_string("./local/source.bs")
+            .unwrap()
+            .as_str(),
+    );
 }
 
 #[cfg(test)]
