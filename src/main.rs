@@ -688,6 +688,13 @@ impl<V: VM> Compiler<V> {
                 self.pop();
                 self.var_decl();
             }
+        } else if self.peek().kind == TokenKind::Return {
+            self.pop();
+            self.expr();
+            self.emit(Instruction::Ret);
+            while !self.peek().is('}') {
+                self.pop();
+            }
         } else {
             self.assign_call();
         }
