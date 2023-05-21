@@ -7,7 +7,7 @@ const SINGLE_CHARS: &[char] = &[
 ];
 const EQUAL_FOLLOW: &[char] = &['=', '>', '<', '!'];
 
-struct Lexer {
+struct Scanner {
     text: Text,
     old_ptr: usize,
     ptr: usize,
@@ -58,9 +58,9 @@ impl Token {
     }
 }
 
-impl Lexer {
-    fn new(text: Text) -> Lexer {
-        Lexer {
+impl Scanner {
+    fn new(text: Text) -> Scanner {
+        Scanner {
             text,
             ptr: 0,
             old_ptr: 0,
@@ -266,7 +266,7 @@ impl Instruction {
 type Scope = HashMap<String, usize>;
 
 struct Compiler<V: VM> {
-    lexer: Lexer,
+    scanner: Scanner,
     vm: V,
     text: Text,
     token_buffer: Option<Token>,
@@ -312,9 +312,9 @@ impl<V: VM> Compiler<V> {
         }
     }
     fn token(&mut self) -> Token {
-        let t = self.lexer.next();
+        let t = self.scanner.next();
         if t.is_error() {
-            panic!("LEXICAL ERROR");
+            panic!("SCANNER ERROR");
         }
         t
     }
@@ -516,9 +516,9 @@ impl<V: VM> Compiler<V> {
             count
         }
     }
-    fn new(text: Text, lexer: Lexer, vm: V) -> Compiler<V> {
+    fn new(text: Text, scanner: Scanner, vm: V) -> Compiler<V> {
         Compiler {
-            lexer,
+            scanner,
             vm,
             text,
             token_buffer: None,
@@ -677,9 +677,9 @@ struct BakhtScript {}
 impl BakhtScript {
     fn run(&self, source: &str) {
         let text: Text = Arc::new(source.chars().collect());
-        let lexer = Lexer::new(text.clone());
+        let scanner = Scanner::new(text.clone());
         let vm = BVM {};
-        let mut compiler = Compiler::new(text, lexer, vm);
+        let mut compiler = Compiler::new(text, scanner, vm);
         compiler.compile();
         let mut vm = compiler.vm();
         vm.run();
@@ -699,7 +699,7 @@ fn main() {
 mod tests {
     use std::sync::Arc;
 
-    use crate::{Instruction, Lexer};
+    use crate::{Instruction, Scanner};
 
     use super::{Compiler, VM};
 
@@ -745,8 +745,8 @@ mod tests {
             .collect::<Vec<_>>();
         let text: Arc<Vec<char>> = Arc::new(src.chars().collect());
         let vm = MockVM::default();
-        let lexer = Lexer::new(text.clone());
-        let mut compiler = Compiler::new(text, lexer, vm);
+        let scanner = Scanner::new(text.clone());
+        let mut compiler = Compiler::new(text, scanner, vm);
         compiler.compile();
         let vm = compiler.vm();
         vm.check(target.as_slice());
