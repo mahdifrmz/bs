@@ -184,8 +184,8 @@ enum Value {
 
 trait VM {
     fn emit(&mut self, bytecode: u8);
-    fn rodata_number(&mut self, number: f32) -> u64;
-    fn rodata_literal(&mut self, literal: String) -> u64;
+    fn rodata_number(&mut self, number: f32) -> usize;
+    fn rodata_literal(&mut self, literal: String) -> usize;
     fn run(&mut self) {}
 }
 
@@ -197,10 +197,10 @@ impl VM for BVM {
     fn emit(&mut self, bytecode: u8) {
         print!("{}:", bytecode)
     }
-    fn rodata_number(&mut self, number: f32) -> u64 {
+    fn rodata_number(&mut self, number: f32) -> usize {
         0
     }
-    fn rodata_literal(&mut self, literal: String) -> u64 {
+    fn rodata_literal(&mut self, literal: String) -> usize {
         0
     }
     fn run(&mut self) {}
@@ -223,18 +223,18 @@ enum Instruction {
     Get = 11,
     Pop = 12,
     Ret = 13,
-    Load(u64) = 14,
-    Store(u64) = 15,
-    Call(u64) = 16,
-    Konst(u64) = 17,
+    Load(usize) = 14,
+    Store(usize) = 15,
+    Call(usize) = 16,
+    Konst(usize) = 17,
     Nil = 18,
     True = 19,
     False = 20,
-    NewArray(u64) = 21,
+    NewArray(usize) = 21,
     Mod = 22,
 }
 impl Instruction {
-    fn encode_params(self) -> (u8, Option<u64>) {
+    fn encode_params(self) -> (u8, Option<usize>) {
         match self {
             Instruction::Add => (0, None),
             Instruction::Sub => (1, None),
@@ -335,7 +335,7 @@ impl<V: VM> Compiler<V> {
     fn encode(&self, instruction: Instruction) -> Bytecode {
         let i = instruction.encode_params();
         let opcode = i.0 as u8;
-        let operand = i.1 as Option<u64>;
+        let operand = i.1 as Option<usize>;
         let mut bytecode = Bytecode::default();
         bytecode.bytes[0] = opcode;
         bytecode.len = 1;
@@ -495,7 +495,7 @@ impl<V: VM> Compiler<V> {
             }
         }
     }
-    fn explist(&mut self, end: char) -> u64 {
+    fn explist(&mut self, end: char) -> usize {
         if self.peek().kind == TokenKind::Single(end) {
             self.pop();
             0
@@ -630,7 +630,7 @@ impl<V: VM> Compiler<V> {
 enum AssignCallState {
     InitialRvalue,
     Call,
-    Identifier(u64),
+    Identifier(usize),
     Index,
 }
 
@@ -680,7 +680,7 @@ mod tests {
     #[derive(Default)]
     struct MockVM {
         bin: Vec<u8>,
-        cidx: u64,
+        cidx: usize,
     }
 
     impl VM for MockVM {
@@ -688,13 +688,13 @@ mod tests {
             self.bin.push(bytecode)
         }
 
-        fn rodata_number(&mut self, _: f32) -> u64 {
+        fn rodata_number(&mut self, _: f32) -> usize {
             let cidx = self.cidx;
             self.cidx = self.cidx + 1;
             cidx
         }
 
-        fn rodata_literal(&mut self, _: String) -> u64 {
+        fn rodata_literal(&mut self, _: String) -> usize {
             let cidx = self.cidx;
             self.cidx = self.cidx + 1;
             cidx
