@@ -229,7 +229,7 @@ enum Instruction {
     Lt = 9,
     Set = 10,
     Get = 11,
-    Pop = 12,
+    Pop(usize) = 12,
     Ret = 13,
     Load(usize) = 14,
     Store(usize) = 15,
@@ -258,7 +258,7 @@ impl Instruction {
             Instruction::Lt => (9, None),
             Instruction::Set => (10, None),
             Instruction::Get => (11, None),
-            Instruction::Pop => (12, None),
+            Instruction::Pop(o) => (12, Some(o)),
             Instruction::Ret => (13, None),
             Instruction::Load(o) => (14, Some(o)),
             Instruction::Store(o) => (15, Some(o)),
@@ -633,6 +633,7 @@ impl<V: VM> Compiler<V> {
                 state = AssignCallState::Call;
             } else {
                 if state == AssignCallState::Call {
+                    self.emit(Instruction::Pop(1));
                     break;
                 } else {
                     self.error_unexpected(tkn);
@@ -646,13 +647,17 @@ impl<V: VM> Compiler<V> {
             self.stmt();
         }
         self.close_scope();
-        self.expect(end);
+        self.pop();
     }
     fn new_scope(&mut self) {
         self.scopes.push(Scope::default());
     }
     fn close_scope(&mut self) {
-        self.offset -= self.curscope().len();
+        let scope_size = self.curscope().len();
+        self.offset -= scope_size;
+        if scope_size > 0 {
+            self.emit(Instruction::Pop(scope_size));
+        }
         self.scopes.pop();
     }
     fn curscope<'a>(&'a mut self) -> &'a mut Scope {
@@ -680,6 +685,7 @@ impl<V: VM> Compiler<V> {
     }
     fn stmt(&mut self) {
         if self.peek().is('{') {
+            self.pop();
             self.block(TokenKind::Single('}'));
         } else if self.peek().kind == TokenKind::Let {
             self.pop();
