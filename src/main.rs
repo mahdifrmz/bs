@@ -24,8 +24,8 @@ enum TokenKind {
     Error,
     EOF,
     Literal,
-    Let,
     // keywords
+    Let,
     If,
     Else,
     While,
@@ -172,17 +172,24 @@ impl Scanner {
     }
 }
 
+type Native = fn(&mut BakhtScript);
+
+enum Function {
+    Bakht { param_count: u8, address: usize },
+    Native(Native),
+}
+
 enum Value {
     String(String),
     Array(Vec<Value>),
-    Object(HashMap<String, Value>),
     Nil,
     Boolean(bool),
     Number(f32),
-    Function(u32),
+    Function(Function),
 }
 
 trait VM {
+    fn function(&mut self, param_count: u8);
     fn emit(&mut self, bytecode: u8);
     fn rodata_number(&mut self, number: f32) -> usize;
     fn rodata_literal(&mut self, literal: String) -> usize;
@@ -204,6 +211,7 @@ impl VM for BVM {
         0
     }
     fn run(&mut self) {}
+    fn function(&mut self, param_count: u8) {}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -232,6 +240,8 @@ enum Instruction {
     False = 20,
     NewArray(usize) = 21,
     Mod = 22,
+    GLoad(usize) = 23,
+    GStore(usize) = 24,
 }
 impl Instruction {
     fn encode_params(self) -> (u8, Option<usize>) {
@@ -259,6 +269,8 @@ impl Instruction {
             Instruction::False => (20, None),
             Instruction::NewArray(o) => (21, Some(o)),
             Instruction::Mod => (22, None),
+            Instruction::GLoad(o) => (23, Some(o)),
+            Instruction::GStore(o) => (24, Some(o)),
         }
     }
 }
@@ -271,6 +283,7 @@ struct Compiler<V: VM> {
     text: Text,
     token_buffer: Option<Token>,
     scopes: Vec<Scope>,
+    offset: usize,
 }
 
 impl<V: VM> Compiler<V> {
@@ -420,7 +433,7 @@ impl<V: VM> Compiler<V> {
             TokenKind::True => Instruction::True,
             TokenKind::False => Instruction::False,
             TokenKind::Nil => Instruction::Nil,
-            TokenKind::Identifier => Instruction::Load(self.get_id(token)),
+            TokenKind::Identifier => self.compile_load_id(token),
             _ => self.error_unexpected(token),
         }
     }
@@ -523,18 +536,19 @@ impl<V: VM> Compiler<V> {
             text,
             token_buffer: None,
             scopes: vec![Scope::default()],
+            offset: 0,
         }
     }
     fn compile(&mut self) {
-        self.block(TokenKind::EOF)
+        self.source()
     }
     fn vm(self) -> V {
         self.vm
     }
     fn flush_lvalue(&mut self, state: AssignCallState) {
         if let AssignCallState::Identifier(token) = state {
-            let idx = self.get_id(token);
-            self.emit(Instruction::Load(idx));
+            let i = self.compile_load_id(token);
+            self.emit(i);
         } else if state == AssignCallState::Index {
             self.emit(Instruction::Get);
         }
@@ -542,12 +556,31 @@ impl<V: VM> Compiler<V> {
     fn get_token_text(&self, token: Token) -> String {
         token.text(self.text.clone())
     }
-    fn get_id(&mut self, token: Token) -> usize {
+    fn get_id(&mut self, token: Token) -> (usize, bool) {
         let name = self.get_token_text(token);
-        *self.curscope().get(&name).unwrap_or_else(|| {
-            eprintln!("unknown identifier '{}' at {}", name, token.from);
-            exit(1);
-        })
+        for (i, c) in self.scopes.iter().enumerate().rev() {
+            if let Some(idx) = c.get(&name) {
+                return (*idx, i == 0);
+            }
+        }
+        eprintln!("unknown identifier '{}' at {}", name, token.from);
+        exit(1);
+    }
+    fn compile_load_id(&mut self, token: Token) -> Instruction {
+        let (idx, is_global) = self.get_id(token);
+        if is_global {
+            Instruction::GLoad(idx)
+        } else {
+            Instruction::Load(idx)
+        }
+    }
+    fn compile_store_id(&mut self, token: Token) -> Instruction {
+        let (idx, is_global) = self.get_id(token);
+        if is_global {
+            Instruction::GStore(idx)
+        } else {
+            Instruction::Store(idx)
+        }
     }
     fn assign_call(&mut self) {
         let tkn = self.pop();
@@ -572,7 +605,7 @@ impl<V: VM> Compiler<V> {
                 if state.endable() {
                     self.expr();
                     let i = if let AssignCallState::Identifier(token) = state {
-                        Instruction::Store(self.get_id(token))
+                        self.compile_store_id(token)
                     } else {
                         Instruction::Set
                     };
@@ -608,23 +641,36 @@ impl<V: VM> Compiler<V> {
         }
     }
     fn block(&mut self, end: TokenKind) {
-        self.scopes.push(Scope::default());
+        self.new_scope();
         while self.peek().kind != end {
             self.stmt();
         }
-        self.scopes.pop();
+        self.close_scope();
         self.expect(end);
+    }
+    fn new_scope(&mut self) {
+        self.scopes.push(Scope::default());
+    }
+    fn close_scope(&mut self) {
+        self.offset -= self.curscope().len();
+        self.scopes.pop();
     }
     fn curscope<'a>(&'a mut self) -> &'a mut Scope {
         self.scopes.last_mut().unwrap()
     }
-    fn register_decl(&mut self, name: String) {
-        let idx = self.curscope().len();
+    fn register_decl(&mut self, token: Token) {
+        let name = self.get_token_text(token);
+        if self.curscope().get(&name).is_some() {
+            eprintln!("Variable '{}' previously defined", name);
+            exit(1);
+        }
+        let idx = self.offset;
+        self.offset += 1;
         self.curscope().insert(name, idx);
     }
     fn var_decl(&mut self) {
         let id = self.expect(TokenKind::Identifier);
-        self.register_decl(id.text(self.text.clone()));
+        self.register_decl(id);
         if self.peek().is('=') {
             self.pop();
             self.expr();
@@ -645,6 +691,46 @@ impl<V: VM> Compiler<V> {
         } else {
             self.assign_call();
         }
+    }
+    fn paramlist(&mut self) -> u8 {
+        self.expect(TokenKind::Single('('));
+        if self.peek().is(')') {
+            self.pop();
+            0
+        } else {
+            let id = self.expect(TokenKind::Identifier);
+            self.register_decl(id);
+            let mut param_count = 1;
+            while self.peek().is(',') {
+                self.pop();
+                let id = self.expect(TokenKind::Identifier);
+                self.register_decl(id);
+                param_count = param_count + 1;
+            }
+            self.expect(TokenKind::Single(')'));
+            param_count
+        }
+    }
+    fn function_body(&mut self) {
+        let id = self.expect(TokenKind::Identifier);
+        self.register_decl(id);
+        self.new_scope();
+        let param_count = self.paramlist();
+        self.vm.function(param_count);
+        self.expect(TokenKind::Single('{'));
+        self.block(TokenKind::Single('}'));
+        self.close_scope();
+    }
+    fn source(&mut self) {
+        while self.peek().kind != TokenKind::EOF {
+            let token = self.pop();
+            if token.kind == TokenKind::Fn {
+                self.function_body();
+            } else {
+                self.error_unexpected(token);
+            }
+        }
+        self.pop();
     }
 }
 
@@ -710,6 +796,9 @@ mod tests {
     }
 
     impl VM for MockVM {
+        fn run(&mut self) {}
+        fn function(&mut self, param_count: u8) {}
+
         fn emit(&mut self, bytecode: u8) {
             self.bin.push(bytecode)
         }
