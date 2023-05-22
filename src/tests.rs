@@ -1,5 +1,5 @@
-use super::{Compiler, VM};
-use crate::{Instruction, Scanner};
+use super::{compiler::Compiler, vm::VM};
+use crate::{scanner::Scanner, vm::Instruction};
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -10,7 +10,7 @@ struct MockVM {
 
 impl VM for MockVM {
     fn run(&mut self) {}
-    fn function(&mut self, param_count: u8) {}
+    fn function(&mut self, _: u8) {}
 
     fn emit(&mut self, bytecode: u8) {
         self.bin.push(bytecode)
@@ -49,7 +49,7 @@ fn check(src: &str, target: &[Instruction]) {
     let vm = MockVM::default();
     let scanner = Scanner::new(text.clone());
     let mut compiler = Compiler::new(text, scanner, vm);
-    compiler.compile();
+    compiler.compile().unwrap();
     let vm = compiler.vm();
     vm.check(target.as_slice());
 }
