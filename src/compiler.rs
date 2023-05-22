@@ -10,12 +10,12 @@ use super::Text;
 use std::process::exit;
 
 pub(crate) struct Compiler<V: VM> {
-    pub(crate) scanner: Scanner,
-    pub(crate) vm: V,
-    pub(crate) text: Text,
-    pub(crate) token_buffer: Option<Token>,
-    pub(crate) scopes: Vec<Scope>,
-    pub(crate) offset: usize,
+    scanner: Scanner,
+    vm: V,
+    text: Text,
+    token_buffer: Option<Token>,
+    scopes: Vec<Scope>,
+    offset: usize,
 }
 
 #[derive(Debug)]
@@ -26,10 +26,10 @@ pub(crate) enum Error {
 pub(crate) type CResult<T> = Result<T, Error>;
 
 impl<V: VM> Compiler<V> {
-    pub(crate) fn error_unexpected(&self, token: Token) -> Error {
+    fn error_unexpected(&self, token: Token) -> Error {
         Error::UnexpectedToken(token)
     }
-    pub(crate) fn pwr_infix(&self, op: &str) -> Option<(u32, u32)> {
+    fn pwr_infix(&self, op: &str) -> Option<(u32, u32)> {
         if op == "+" || op == "-" {
             Some((51, 52))
         } else if op == "*" || op == "/" || op == "%" {
@@ -40,21 +40,21 @@ impl<V: VM> Compiler<V> {
             None
         }
     }
-    pub(crate) fn pwr_postfix(&self, op: &str) -> Option<(u32, ())> {
+    fn pwr_postfix(&self, op: &str) -> Option<(u32, ())> {
         if op == "(" || op == "[" || op == "." {
             Some((59, ()))
         } else {
             None
         }
     }
-    pub(crate) fn pwr_prefix(&self, op: &str) -> Option<((), u32)> {
+    fn pwr_prefix(&self, op: &str) -> Option<((), u32)> {
         if op == "+" || op == "-" {
             Some(((), 56))
         } else {
             None
         }
     }
-    pub(crate) fn token(&mut self) -> CResult<Token> {
+    fn token(&mut self) -> CResult<Token> {
         let t = self.scanner.next();
         if t.is_error() {
             Err(Error::Scanner)
@@ -62,7 +62,7 @@ impl<V: VM> Compiler<V> {
             Ok(t)
         }
     }
-    pub(crate) fn pop(&mut self) -> CResult<Token> {
+    fn pop(&mut self) -> CResult<Token> {
         if let Some(t) = self.token_buffer {
             self.token_buffer = None;
             Ok(t)
@@ -70,7 +70,7 @@ impl<V: VM> Compiler<V> {
             self.token()
         }
     }
-    pub(crate) fn peek(&mut self) -> CResult<Token> {
+    fn peek(&mut self) -> CResult<Token> {
         if let Some(t) = self.token_buffer {
             Ok(t)
         } else {
@@ -79,7 +79,7 @@ impl<V: VM> Compiler<V> {
             Ok(t)
         }
     }
-    pub(crate) fn encode(&self, instruction: Instruction) -> Bytecode {
+    fn encode(&self, instruction: Instruction) -> Bytecode {
         let i = instruction.encode_params();
         let opcode = i.0 as u8;
         let operand = i.1 as Option<usize>;
@@ -116,20 +116,20 @@ impl<V: VM> Compiler<V> {
         }
         bytecode
     }
-    pub(crate) fn emit(&mut self, instruction: Instruction) {
+    fn emit(&mut self, instruction: Instruction) {
         let bytecode = self.encode(instruction);
         for i in 0..bytecode.len {
             self.vm.emit(bytecode.bytes[i as usize])
         }
     }
-    pub(crate) fn expect(&mut self, kind: TokenKind) -> CResult<Token> {
+    fn expect(&mut self, kind: TokenKind) -> CResult<Token> {
         let token = self.pop()?;
         if token.kind != kind {
             return Err(self.error_unexpected(token));
         }
         Ok(token)
     }
-    pub(crate) fn compile_operator(&mut self, token: Token) -> Instruction {
+    fn compile_operator(&mut self, token: Token) -> Instruction {
         match token.kind {
             TokenKind::Single('+') => Instruction::Add,
             TokenKind::Single('-') => Instruction::Sub,
@@ -148,7 +148,7 @@ impl<V: VM> Compiler<V> {
             _ => panic!("IMPOSSIBLE!"),
         }
     }
-    pub(crate) fn compile_atom(&mut self, token: Token) -> CResult<Instruction> {
+    fn compile_atom(&mut self, token: Token) -> CResult<Instruction> {
         match token.kind {
             TokenKind::Number => Ok(Instruction::Konst(
                 self.vm.rodata_number(
@@ -168,16 +168,16 @@ impl<V: VM> Compiler<V> {
             _ => Err(self.error_unexpected(token)),
         }
     }
-    pub(crate) fn expr(&mut self) -> CResult<()> {
+    fn expr(&mut self) -> CResult<()> {
         self.expr_p(0)
     }
-    pub(crate) fn property(&mut self) -> CResult<()> {
+    fn property(&mut self) -> CResult<()> {
         let id = self.expect(TokenKind::Identifier)?;
         let prop = self.vm.rodata_literal(id.text(self.text.clone()));
         self.emit(Instruction::Konst(prop));
         Ok(())
     }
-    pub(crate) fn expr_p(&mut self, pwr: u32) -> CResult<()> {
+    fn expr_p(&mut self, pwr: u32) -> CResult<()> {
         let token = self.pop()?;
         if let Some((_, rp)) = self.pwr_prefix(token.text(self.text.clone()).as_str()) {
             self.expr_p(rp)?;
@@ -244,7 +244,7 @@ impl<V: VM> Compiler<V> {
         }
         Ok(())
     }
-    pub(crate) fn explist(&mut self, end: char) -> CResult<usize> {
+    fn explist(&mut self, end: char) -> CResult<usize> {
         if self.peek()?.kind == TokenKind::Single(end) {
             self.pop()?;
             Ok(0)
@@ -278,7 +278,7 @@ impl<V: VM> Compiler<V> {
     pub(crate) fn vm(self) -> V {
         self.vm
     }
-    pub(crate) fn flush_lvalue(&mut self, state: AssignCallState) {
+    fn flush_lvalue(&mut self, state: AssignCallState) {
         if let AssignCallState::Identifier(token) = state {
             let i = self.compile_load_id(token);
             self.emit(i);
@@ -286,10 +286,10 @@ impl<V: VM> Compiler<V> {
             self.emit(Instruction::Get);
         }
     }
-    pub(crate) fn get_token_text(&self, token: Token) -> String {
+    fn get_token_text(&self, token: Token) -> String {
         token.text(self.text.clone())
     }
-    pub(crate) fn get_id(&mut self, token: Token) -> (usize, bool) {
+    fn get_id(&mut self, token: Token) -> (usize, bool) {
         let name = self.get_token_text(token);
         for (i, c) in self.scopes.iter().enumerate().rev() {
             if let Some(idx) = c.get(&name) {
@@ -299,7 +299,7 @@ impl<V: VM> Compiler<V> {
         eprintln!("unknown identifier '{}' at {}", name, token.from);
         exit(1);
     }
-    pub(crate) fn compile_load_id(&mut self, token: Token) -> Instruction {
+    fn compile_load_id(&mut self, token: Token) -> Instruction {
         let (idx, is_global) = self.get_id(token);
         if is_global {
             Instruction::GLoad(idx)
@@ -307,7 +307,7 @@ impl<V: VM> Compiler<V> {
             Instruction::Load(idx)
         }
     }
-    pub(crate) fn compile_store_id(&mut self, token: Token) -> Instruction {
+    fn compile_store_id(&mut self, token: Token) -> Instruction {
         let (idx, is_global) = self.get_id(token);
         if is_global {
             Instruction::GStore(idx)
@@ -315,7 +315,7 @@ impl<V: VM> Compiler<V> {
             Instruction::Store(idx)
         }
     }
-    pub(crate) fn assign_call(&mut self) -> CResult<()> {
+    fn assign_call(&mut self) -> CResult<()> {
         let tkn = self.pop()?;
         let mut state = if tkn.is('(') {
             self.expr()?;
@@ -375,7 +375,7 @@ impl<V: VM> Compiler<V> {
         }
         Ok(())
     }
-    pub(crate) fn block(&mut self, end: TokenKind) -> CResult<()> {
+    fn block(&mut self, end: TokenKind) -> CResult<()> {
         self.new_scope();
         while self.peek()?.kind != end {
             self.stmt()?;
@@ -384,10 +384,10 @@ impl<V: VM> Compiler<V> {
         self.pop()?;
         Ok(())
     }
-    pub(crate) fn new_scope(&mut self) {
+    fn new_scope(&mut self) {
         self.scopes.push(Scope::default());
     }
-    pub(crate) fn close_scope(&mut self) {
+    fn close_scope(&mut self) {
         let scope_size = self.curscope().len();
         self.offset -= scope_size;
         if scope_size > 0 {
@@ -395,10 +395,10 @@ impl<V: VM> Compiler<V> {
         }
         self.scopes.pop();
     }
-    pub(crate) fn curscope<'a>(&'a mut self) -> &'a mut Scope {
+    fn curscope<'a>(&'a mut self) -> &'a mut Scope {
         self.scopes.last_mut().unwrap()
     }
-    pub(crate) fn register_decl(&mut self, token: Token) {
+    fn register_decl(&mut self, token: Token) {
         let name = self.get_token_text(token);
         if self.curscope().get(&name).is_some() {
             eprintln!("Variable '{}' previously defined", name);
@@ -408,7 +408,7 @@ impl<V: VM> Compiler<V> {
         self.offset += 1;
         self.curscope().insert(name, idx);
     }
-    pub(crate) fn var_decl(&mut self) -> CResult<()> {
+    fn var_decl(&mut self) -> CResult<()> {
         let id = self.expect(TokenKind::Identifier)?;
         self.register_decl(id);
         if self.peek()?.is('=') {
@@ -419,7 +419,7 @@ impl<V: VM> Compiler<V> {
         }
         Ok(())
     }
-    pub(crate) fn stmt(&mut self) -> CResult<()> {
+    fn stmt(&mut self) -> CResult<()> {
         if self.peek()?.is('{') {
             self.pop()?;
             self.block(TokenKind::Single('}'))?;
@@ -442,7 +442,7 @@ impl<V: VM> Compiler<V> {
         }
         Ok(())
     }
-    pub(crate) fn paramlist(&mut self) -> CResult<u8> {
+    fn paramlist(&mut self) -> CResult<u8> {
         self.expect(TokenKind::Single('('))?;
         if self.peek()?.is(')') {
             self.pop()?;
@@ -461,7 +461,7 @@ impl<V: VM> Compiler<V> {
             Ok(param_count)
         }
     }
-    pub(crate) fn function_body(&mut self) -> CResult<()> {
+    fn function_body(&mut self) -> CResult<()> {
         let id = self.expect(TokenKind::Identifier)?;
         self.register_decl(id);
         self.new_scope();
@@ -472,7 +472,7 @@ impl<V: VM> Compiler<V> {
         self.close_scope();
         Ok(())
     }
-    pub(crate) fn source(&mut self) -> CResult<()> {
+    fn source(&mut self) -> CResult<()> {
         while self.peek()?.kind != TokenKind::EOF {
             let token = self.pop()?;
             if token.kind == TokenKind::Fn {
@@ -487,7 +487,7 @@ impl<V: VM> Compiler<V> {
 }
 
 #[derive(PartialEq, Eq)]
-pub(crate) enum AssignCallState {
+enum AssignCallState {
     InitialRvalue,
     Call,
     Identifier(Token),
@@ -495,7 +495,7 @@ pub(crate) enum AssignCallState {
 }
 
 impl AssignCallState {
-    pub(crate) fn endable(&self) -> bool {
+    fn endable(&self) -> bool {
         match self {
             AssignCallState::InitialRvalue | AssignCallState::Call => false,
             AssignCallState::Identifier(_) | AssignCallState::Index => true,
@@ -504,7 +504,7 @@ impl AssignCallState {
 }
 
 #[derive(Default)]
-pub(crate) struct Bytecode {
-    pub(crate) bytes: [u8; 9],
-    pub(crate) len: u8,
+struct Bytecode {
+    bytes: [u8; 9],
+    len: u8,
 }
