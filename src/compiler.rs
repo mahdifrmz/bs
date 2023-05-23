@@ -434,7 +434,7 @@ impl<V: VM> Compiler<V> {
             self.pop()?;
             self.expr()?;
             self.emit(Instruction::Ret);
-            while !self.peek()?.is('}') {
+            while !self.peek()?.is('}') && self.peek()?.kind != TokenKind::EOF {
                 self.pop()?;
             }
         } else {
