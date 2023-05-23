@@ -30,8 +30,8 @@ impl BakhtScript {
         self.vm = compiler.vm();
         Ok(())
     }
-    fn run(&mut self) {
-        self.vm.run();
+    fn run(&mut self, args: Vec<String>) {
+        self.vm.run(args);
     }
 }
 

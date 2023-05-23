@@ -22,12 +22,17 @@ pub(crate) struct Compiler<V: VM> {
 pub(crate) enum Error {
     Scanner,
     UnexpectedToken(Token),
+    Immutable(Token),
+    NoMainFunction,
 }
 pub(crate) type CResult<T> = Result<T, Error>;
 
 impl<V: VM> Compiler<V> {
     fn error_unexpected(&self, token: Token) -> Error {
         Error::UnexpectedToken(token)
+    }
+    fn error_immutable(&self, token: Token) -> Error {
+        Error::Immutable(token)
     }
     fn pwr_infix(&self, op: &str) -> Option<(u32, u32)> {
         if op == "+" || op == "-" {
@@ -302,17 +307,17 @@ impl<V: VM> Compiler<V> {
     fn compile_load_id(&mut self, token: Token) -> Instruction {
         let (idx, is_global) = self.get_id(token);
         if is_global {
-            Instruction::GLoad(idx)
+            Instruction::Konst(idx)
         } else {
             Instruction::Load(idx)
         }
     }
-    fn compile_store_id(&mut self, token: Token) -> Instruction {
+    fn compile_store_id(&mut self, token: Token) -> CResult<Instruction> {
         let (idx, is_global) = self.get_id(token);
         if is_global {
-            Instruction::GStore(idx)
+            Err(self.error_immutable(token))
         } else {
-            Instruction::Store(idx)
+            Ok(Instruction::Store(idx))
         }
     }
     fn assign_call(&mut self) -> CResult<()> {
@@ -338,7 +343,7 @@ impl<V: VM> Compiler<V> {
                 if state.endable() {
                     self.expr()?;
                     let i = if let AssignCallState::Identifier(token) = state {
-                        self.compile_store_id(token)
+                        self.compile_store_id(token)?
                     } else {
                         Instruction::Set
                     };
@@ -408,6 +413,14 @@ impl<V: VM> Compiler<V> {
         self.offset += 1;
         self.curscope().insert(name, idx);
     }
+    fn register_const(&mut self, token: Token, idx: usize) {
+        let name = self.get_token_text(token);
+        if self.scopes.first().unwrap().get(&name).is_some() {
+            eprintln!("Variable '{}' previously defined", name);
+            exit(1);
+        }
+        self.curscope().insert(name, idx);
+    }
     fn var_decl(&mut self) -> CResult<()> {
         let id = self.expect(TokenKind::Identifier)?;
         self.register_decl(id);
@@ -461,28 +474,34 @@ impl<V: VM> Compiler<V> {
             Ok(param_count)
         }
     }
-    fn function_body(&mut self) -> CResult<()> {
+    fn function_body(&mut self) -> CResult<bool> {
         let id = self.expect(TokenKind::Identifier)?;
-        self.register_decl(id);
-        self.new_scope();
         let param_count = self.paramlist()?;
-        self.vm.function(param_count);
+        let is_main = self.get_token_text(id).as_str() == "main";
+        let idx = self.vm.rodata_function(param_count, is_main);
         self.expect(TokenKind::Single('{'))?;
+        self.new_scope();
         self.block(TokenKind::Single('}'))?;
         self.close_scope();
-        Ok(())
+        self.register_const(id, idx);
+        Ok(is_main)
     }
     fn source(&mut self) -> CResult<()> {
+        let mut has_main = false;
         while self.peek()?.kind != TokenKind::EOF {
             let token = self.pop()?;
             if token.kind == TokenKind::Fn {
-                self.function_body()?;
+                has_main |= self.function_body()?;
             } else {
                 return Err(self.error_unexpected(token));
             }
         }
         self.pop()?;
-        Ok(())
+        if has_main {
+            Ok(())
+        } else {
+            Err(Error::NoMainFunction)
+        }
     }
 }
 

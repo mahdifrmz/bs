@@ -9,8 +9,10 @@ struct MockVM {
 }
 
 impl VM for MockVM {
-    fn run(&mut self) {}
-    fn function(&mut self, _: u8) {}
+    fn run(&mut self, _: Vec<String>) {}
+    fn rodata_function(&mut self, _: u8, _: bool) -> usize {
+        0
+    }
 
     fn emit(&mut self, bytecode: u8) {
         self.bin.push(bytecode)
