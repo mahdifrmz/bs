@@ -22,6 +22,7 @@ pub(crate) trait VM {
     fn rodata_number(&mut self, number: f32) -> usize;
     fn rodata_literal(&mut self, literal: String) -> usize;
     fn run(&mut self) {}
+    fn reset(&mut self) {}
 }
 
 #[derive(Default)]
@@ -40,6 +41,7 @@ impl VM for BVM {
     }
     fn run(&mut self) {}
     fn function(&mut self, param_count: u8) {}
+    fn reset(&mut self) {}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

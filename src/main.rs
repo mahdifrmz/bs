@@ -8,29 +8,36 @@ use compiler::CResult;
 use scanner::Scanner;
 use std::sync::Arc;
 use text::Text;
-use vm::VM;
+use vm::{BVM, VM};
 
 mod compiler;
 
 #[derive(Default)]
-struct BakhtScript {}
+struct BakhtScript {
+    vm: BVM,
+}
 
 impl BakhtScript {
-    fn run(&self, source: &str) -> CResult<()> {
+    fn reset(&mut self) {
+        self.vm.reset();
+    }
+    fn load(&mut self, source: &str) -> CResult<()> {
+        self.vm.reset();
         let text: Text = Arc::new(source.chars().collect());
         let scanner = Scanner::new(text.clone());
-        let vm = vm::BVM {};
-        let mut compiler = compiler::Compiler::new(text, scanner, vm);
+        let mut compiler = compiler::Compiler::new(text, scanner, BVM::default());
         compiler.compile()?;
-        let mut vm = compiler.vm();
-        vm.run();
+        self.vm = compiler.vm();
         Ok(())
+    }
+    fn run(&mut self) {
+        self.vm.run();
     }
 }
 
 fn main() {
-    let bs = BakhtScript::default();
-    bs.run(
+    let mut bs = BakhtScript::default();
+    bs.load(
         std::fs::read_to_string("./local/source.bs")
             .unwrap()
             .as_str(),
