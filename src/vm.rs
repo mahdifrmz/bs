@@ -48,10 +48,53 @@ impl Array {
         }
     }
 }
+#[derive(PartialEq)]
+pub struct Bstring {
+    inner: RefCell<String>,
+}
+
+impl Bstring {
+    fn push(&self, c: char) {
+        self.inner.borrow_mut().push(c)
+    }
+    fn pop(&self) -> Option<char> {
+        self.inner.borrow_mut().pop()
+    }
+    fn len(&self) -> usize {
+        self.inner.borrow().len()
+    }
+    fn get(&self, index: usize) -> Option<Bstring> {
+        self.inner
+            .borrow()
+            .chars()
+            .nth(index)
+            .map(|c| Bstring::new(c.to_string()))
+    }
+    fn set(&self, index: usize, c: char) -> bool {
+        let arr = self.inner.borrow_mut();
+        if arr.len() <= index {
+            false
+        } else {
+            let c = c.to_string();
+            self.inner
+                .borrow_mut()
+                .replace_range(index..index + 1, c.as_str());
+            true
+        }
+    }
+    fn value(&self) -> String {
+        self.inner.borrow().to_string()
+    }
+    fn new(s: String) -> Bstring {
+        Bstring {
+            inner: RefCell::new(s),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) enum Value {
-    String(Arc<String>),
+    String(Arc<Bstring>),
     Array(Arc<Array>),
     Nil,
     Boolean(bool),
@@ -122,7 +165,8 @@ impl VM for BVM {
     }
     fn rodata_literal(&mut self, literal: String) -> usize {
         let idx = self.constants.len();
-        self.constants.push(Value::String(Arc::new(literal)));
+        self.constants
+            .push(Value::String(Arc::new(Bstring::new(literal))));
         idx
     }
     fn run(&mut self, argc: usize) {
@@ -169,7 +213,7 @@ impl BVM {
         // TODO
     }
     fn string(&self, s: String) -> Value {
-        Value::String(Arc::new(s))
+        Value::String(Arc::new(Bstring::new(s)))
     }
     fn ip(&mut self) -> &mut usize {
         &mut self.frames.last_mut().unwrap().ip
@@ -317,7 +361,9 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 > r0)),
-            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 > r0)),
+            (Value::String(l0), Value::String(r0)) => {
+                self.push(Value::Boolean(l0.value() > r0.value()))
+            }
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -326,7 +372,9 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 > r0)),
-            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 > r0)),
+            (Value::String(l0), Value::String(r0)) => {
+                self.push(Value::Boolean(l0.value() > r0.value()))
+            }
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -335,7 +383,9 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 >= r0)),
-            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 >= r0)),
+            (Value::String(l0), Value::String(r0)) => {
+                self.push(Value::Boolean(l0.value() >= r0.value()))
+            }
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -344,7 +394,9 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 <= r0)),
-            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 <= r0)),
+            (Value::String(l0), Value::String(r0)) => {
+                self.push(Value::Boolean(l0.value() <= r0.value()))
+            }
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -359,6 +411,10 @@ impl BVM {
         match (val, idx) {
             (Value::Array(v), Value::Number(i)) => match v.get(i as usize) {
                 Some(ele) => self.push(ele),
+                None => self.error = Some(Error::IndexOutOfBound),
+            },
+            (Value::String(v), Value::Number(i)) => match v.get(i as usize) {
+                Some(ele) => self.push(Value::String(Arc::new(ele))),
                 None => self.error = Some(Error::IndexOutOfBound),
             },
             _ => self.error = Some(Error::InvalidOperands),
