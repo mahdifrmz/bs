@@ -1,15 +1,36 @@
-use std::{cell::RefCell, sync::Arc};
-
-use crate::Error;
-
 use super::BakhtScript;
-
+use crate::Error;
+use std::{cell::RefCell, sync::Arc};
 pub(crate) type Native = fn(&mut BakhtScript);
+
+const IADD: u8 = 0x0;
+const ISUB: u8 = 0x1;
+const IMULT: u8 = 0x2;
+const IDIV: u8 = 0x3;
+const IEQ: u8 = 0x4;
+const INE: u8 = 0x5;
+const IGE: u8 = 0x6;
+const ILE: u8 = 0x7;
+const IGT: u8 = 0x8;
+const ILT: u8 = 0x9;
+const ISET: u8 = 0xa;
+const IGET: u8 = 0xb;
+const IPOP: u8 = 0x2c;
+const IRET: u8 = 0xd;
+const ILOAD: u8 = 0x2e;
+const ISTORE: u8 = 0x2f;
+const ICALL: u8 = 0x30;
+const IKONST: u8 = 0x31;
+const INIL: u8 = 0x12;
+const ITRUE: u8 = 0x13;
+const IFALSE: u8 = 0x14;
+const IANEW: u8 = 0x35;
+const IMOD: u8 = 0x16;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Function {
-    Bakht { param_count: u8, address: usize },
-    Native(Native),
+    Bakht { param_count: usize, address: usize },
+    Native { param_count: usize, func: Native },
 }
 
 #[derive(PartialEq)]
@@ -75,7 +96,16 @@ impl PartialEq for Value {
                         address: r0,
                     },
                 ) => l0 == r0,
-                (Function::Native(l0), Function::Native(r0)) => (*l0 as usize) == (*r0 as usize),
+                (
+                    Function::Native {
+                        param_count: _,
+                        func: l0,
+                    },
+                    Function::Native {
+                        param_count: _,
+                        func: r0,
+                    },
+                ) => (*l0 as usize) == (*r0 as usize),
                 _ => false,
             },
             _ => false,
@@ -84,7 +114,8 @@ impl PartialEq for Value {
 }
 
 pub(crate) trait VM {
-    fn rodata_function(&mut self, param_count: u8, entry: bool) -> usize;
+    fn rodata_function(&mut self, param_count: usize, entry: bool) -> usize;
+    fn rodata_native(&mut self, native: Native, param_count: usize) -> usize;
     fn emit(&mut self, bytecode: u8);
     fn rodata_number(&mut self, number: f32) -> usize;
     fn rodata_literal(&mut self, literal: String) -> usize;
@@ -107,7 +138,7 @@ pub(crate) struct BVM {
 impl VM for BVM {
     // FIXME
     fn emit(&mut self, bytecode: u8) {
-        print!("{}:", bytecode)
+        self.bin.push(bytecode);
     }
     fn rodata_number(&mut self, number: f32) -> usize {
         let idx = self.constants.len();
@@ -119,7 +150,7 @@ impl VM for BVM {
         self.constants.push(Value::String(Arc::new(literal)));
         idx
     }
-    fn rodata_function(&mut self, param_count: u8, entry: bool) -> usize {
+    fn rodata_function(&mut self, param_count: usize, entry: bool) -> usize {
         let address = self.bin.len();
         let idx = self.constants.len();
         let val = Value::Function(Function::Bakht {
@@ -131,6 +162,12 @@ impl VM for BVM {
             self.entry = idx;
         }
         self.push(val);
+        idx
+    }
+    fn rodata_native(&mut self, func: Native, param_count: usize) -> usize {
+        let idx = self.constants.len();
+        self.constants
+            .push(Value::Function(Function::Native { func, param_count }));
         idx
     }
 }
@@ -176,7 +213,7 @@ impl BVM {
             let operand_count = 1 << operand_count;
             let mut operand = 0usize;
             for _ in 0..operand_count {
-                operand = operand << 1;
+                operand = operand << 8;
                 operand += self.read() as usize;
             }
             opcode &= 0b_0011_11111;
@@ -187,66 +224,37 @@ impl BVM {
         (opcode, operand)
     }
     fn process(&mut self) {
-        while self.error.is_none() && *self.ip() != 0 {
+        while self.error.is_none() {
             let (opcode, operand) = self.fetch();
             match opcode {
-                0 => self.i_add(),
-                1 => self.i_sub(),
-                2 => self.i_mult(),
-                3 => self.i_div(),
-                4 => self.i_eq(),
-                5 => self.i_ne(),
-                6 => self.i_ge(),
-                7 => self.i_le(),
-                8 => self.i_gt(),
-                9 => self.i_lt(),
-                10 => self.i_set(),
-                11 => self.i_get(),
-                12 => self.i_pop(operand),
-                13 => self.i_ret(),
-                14 => self.i_load(operand),
-                15 => self.i_store(operand),
-                16 => self.i_call(operand),
-                17 => self.i_konst(operand),
-                18 => self.i_nil(),
-                19 => self.i_true(),
-                20 => self.i_false(),
-                21 => self.i_anew(operand),
-                22 => self.i_mod(),
-                23 => self.i_apush(),
-                24 => self.i_apop(),
-                25 => self.i_alen(),
-                _ => panic!(), // TODO
+                IADD => self.i_add(),
+                ISUB => self.i_sub(),
+                IMULT => self.i_mult(),
+                IDIV => self.i_div(),
+                IEQ => self.i_eq(),
+                INE => self.i_ne(),
+                IGE => self.i_ge(),
+                ILE => self.i_le(),
+                IGT => self.i_gt(),
+                ILT => self.i_lt(),
+                ISET => self.i_set(),
+                IGET => self.i_get(),
+                IPOP => self.i_pop(operand),
+                IRET => self.i_ret(),
+                ILOAD => self.i_load(operand),
+                ISTORE => self.i_store(operand),
+                ICALL => self.i_call(operand),
+                IKONST => self.i_konst(operand),
+                INIL => self.i_nil(),
+                ITRUE => self.i_true(),
+                IFALSE => self.i_false(),
+                IANEW => self.i_anew(operand),
+                IMOD => self.i_mod(),
+                _ => panic!(),
             }
-        }
-    }
-    fn i_apush(&mut self) {
-        let ele = self.pop();
-        let value = self.pop();
-        match &value {
-            Value::Array(a) => {
-                a.push(ele);
-                self.push(value)
+            if opcode == IRET {
+                break;
             }
-            _ => self.error = Some(Error::InvalidOperands),
-        }
-    }
-    fn i_apop(&mut self) {
-        let value = self.pop();
-        match value {
-            Value::Array(a) => match a.pop() {
-                Some(e) => self.push(e),
-                None => self.error = Some(Error::IndexOutOfBound),
-            },
-            _ => self.error = Some(Error::InvalidOperands),
-        }
-    }
-    fn i_alen(&mut self) {
-        let value = self.pop();
-        match value {
-            Value::Array(a) => self.push(Value::Number(a.len() as f32)),
-            Value::String(s) => self.push(Value::Number(s.len() as f32)),
-            _ => self.error = Some(Error::InvalidOperands),
         }
     }
     fn i_load(&mut self, operand: usize) {
@@ -343,6 +351,7 @@ impl BVM {
         for _ in 0..count {
             elements.push(self.pop());
         }
+        elements.reverse();
         self.push(Value::Array(Arc::new(Array::new(elements))));
     }
     fn i_eq(&mut self) {
@@ -437,6 +446,20 @@ impl BVM {
     fn sp(&self) -> usize {
         self.stack.len()
     }
+    pub fn error(&self) -> Option<Error> {
+        self.error.clone()
+    }
+    pub fn push_args(&mut self, argc: usize, param_count: usize) {
+        if argc >= param_count as usize {
+            for _ in 0..(argc - param_count as usize) {
+                self.pop();
+            }
+        } else {
+            for _ in 0..(param_count as usize - argc) {
+                self.push(Value::Nil);
+            }
+        }
+    }
     fn i_call(&mut self, argc: usize) {
         let func = self.stack.remove(self.sp() - 1 - argc);
         match func {
@@ -445,18 +468,18 @@ impl BVM {
                     param_count,
                     address,
                 } => {
-                    if argc >= param_count as usize {
-                        self.frames.push(Frame {
-                            ip: address,
-                            bp: self.sp() - argc,
-                        });
-                        self.process();
-                    }
+                    self.push_args(argc, param_count);
+                    self.frames.push(Frame {
+                        ip: address,
+                        bp: self.sp() - argc,
+                    });
+                    self.process();
                 }
-                Function::Native(f) => {
+                Function::Native { param_count, func } => {
+                    self.push_args(argc, param_count);
                     let vm = std::mem::take(self);
                     let mut bs = BakhtScript { vm };
-                    f(&mut bs);
+                    func(&mut bs);
                     *self = bs.vm;
                 }
             },
@@ -483,63 +506,57 @@ impl Default for BVM {
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum Instruction {
-    Add = 0,
-    Sub = 1,
-    Mult = 2,
-    Div = 3,
-    Eq = 4,
-    Ne = 5,
-    Ge = 6,
-    Le = 7,
-    Gt = 8,
-    Lt = 9,
-    Set = 10,
-    Get = 11,
-    Pop(usize) = 12,
-    Ret = 13,
-    Load(usize) = 14,
-    Store(usize) = 15,
-    Call(usize) = 16,
-    Konst(usize) = 17,
-    Nil = 18,
-    True = 19,
-    False = 20,
-    Anew(usize) = 21,
-    Mod = 22,
-    Apush = 23,
-    Apop = 24,
-    Alen = 25,
+    Add = IADD,
+    Sub = ISUB,
+    Mult = IMULT,
+    Div = IDIV,
+    Eq = IEQ,
+    Ne = INE,
+    Ge = IGE,
+    Le = ILE,
+    Gt = IGT,
+    Lt = ILT,
+    Set = ISET,
+    Get = IGET,
+    Pop(usize) = IPOP,
+    Ret = IRET,
+    Load(usize) = ILOAD,
+    Store(usize) = ISTORE,
+    Call(usize) = ICALL,
+    Konst(usize) = IKONST,
+    Nil = INIL,
+    True = ITRUE,
+    False = IFALSE,
+    Anew(usize) = IANEW,
+    Mod = IMOD,
 }
 
 impl Instruction {
     pub(crate) fn encode_params(self) -> (u8, Option<usize>) {
         match self {
-            Instruction::Add => (0, None),
-            Instruction::Sub => (1, None),
-            Instruction::Mult => (2, None),
-            Instruction::Div => (3, None),
-            Instruction::Eq => (4, None),
-            Instruction::Ne => (5, None),
-            Instruction::Ge => (6, None),
-            Instruction::Le => (7, None),
-            Instruction::Gt => (8, None),
-            Instruction::Lt => (9, None),
-            Instruction::Set => (10, None),
-            Instruction::Get => (11, None),
-            Instruction::Pop(o) => (12, Some(o)),
-            Instruction::Ret => (13, None),
-            Instruction::Load(o) => (14, Some(o)),
-            Instruction::Store(o) => (15, Some(o)),
-            Instruction::Call(o) => (16, Some(o)),
-            Instruction::Konst(o) => (17, Some(o)),
-            Instruction::Nil => (18, None),
-            Instruction::True => (19, None),
-            Instruction::False => (20, None),
-            Instruction::Anew(o) => (21, Some(o)),
-            Instruction::Mod => (22, None),
-            Instruction::Apush => (23, None),
-            Instruction::Apop => (24, None),
-            Instruction::Alen => (25, None),
+            Instruction::Add => (IADD, None),
+            Instruction::Sub => (ISUB, None),
+            Instruction::Mult => (IMULT, None),
+            Instruction::Div => (IDIV, None),
+            Instruction::Eq => (IEQ, None),
+            Instruction::Ne => (INE, None),
+            Instruction::Ge => (IGE, None),
+            Instruction::Le => (ILE, None),
+            Instruction::Gt => (IGT, None),
+            Instruction::Lt => (ILT, None),
+            Instruction::Set => (ISET, None),
+            Instruction::Get => (IGET, None),
+            Instruction::Pop(o) => (IPOP, Some(o)),
+            Instruction::Ret => (IRET, None),
+            Instruction::Load(o) => (ILOAD, Some(o)),
+            Instruction::Store(o) => (ISTORE, Some(o)),
+            Instruction::Call(o) => (ICALL, Some(o)),
+            Instruction::Konst(o) => (IKONST, Some(o)),
+            Instruction::Nil => (INIL, None),
+            Instruction::True => (ITRUE, None),
+            Instruction::False => (IFALSE, None),
+            Instruction::Anew(o) => (IANEW, Some(o)),
+            Instruction::Mod => (IMOD, None),
         }
     }
 }

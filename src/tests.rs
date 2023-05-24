@@ -9,7 +9,11 @@ struct MockVM {
 }
 
 impl VM for MockVM {
-    fn rodata_function(&mut self, _: u8, _: bool) -> usize {
+    fn rodata_native(&mut self, _: crate::vm::Native, _: usize) -> usize {
+        0
+    }
+
+    fn rodata_function(&mut self, _: usize, _: bool) -> usize {
         0
     }
 

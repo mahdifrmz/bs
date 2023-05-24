@@ -1,4 +1,5 @@
 mod compiler;
+mod native;
 mod scanner;
 #[cfg(test)]
 mod tests;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use text::{Text, Token};
 use vm::BVM;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum Error {
     Scanner,
     UnexpectedToken(Token),
@@ -21,11 +22,21 @@ pub(crate) enum Error {
     IndexOutOfBound,
     DivisionByZero,
     CallingNonFunction,
+    UnknownIdentifier(Token),
 }
 
 #[derive(Default)]
 struct BakhtScript {
     vm: BVM,
+}
+
+enum BakhtValue {
+    Function,
+    Boolean(bool),
+    Number(f32),
+    Array,
+    Nil,
+    String(String),
 }
 
 impl BakhtScript {
@@ -44,6 +55,25 @@ impl BakhtScript {
         self.vm = compiler.vm();
         Ok(())
     }
+    fn pop(&mut self) -> BakhtValue {
+        match self.vm.pop() {
+            vm::Value::String(s) => BakhtValue::String(s.to_string()),
+            vm::Value::Array(_) => BakhtValue::Array,
+            vm::Value::Nil => BakhtValue::Nil,
+            vm::Value::Boolean(b) => BakhtValue::Boolean(b),
+            vm::Value::Number(n) => BakhtValue::Number(n),
+            vm::Value::Function(_) => BakhtValue::Function,
+        }
+    }
+    fn push_nil(&mut self) {
+        self.vm.push(vm::Value::Nil)
+    }
+    fn error(&self) -> Result<(), Error> {
+        match self.vm.error() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
 }
 
 fn main() {
@@ -55,4 +85,5 @@ fn main() {
     )
     .unwrap();
     bs.fcall(0);
+    bs.error().unwrap();
 }

@@ -157,13 +157,15 @@ impl<V: VM> Compiler<V> {
                         .expect("INVALID NUMERIC CONSTANT"),
                 ),
             )),
-            TokenKind::Literal => Ok(Instruction::Konst(
-                self.vm.rodata_literal(token.text(self.text.clone())),
-            )),
+            TokenKind::Literal => Ok({
+                let name = token.text(self.text.clone());
+                let name = name[1..name.len() - 1].to_string();
+                Instruction::Konst(self.vm.rodata_literal(name))
+            }),
             TokenKind::True => Ok(Instruction::True),
             TokenKind::False => Ok(Instruction::False),
             TokenKind::Nil => Ok(Instruction::Nil),
-            TokenKind::Identifier => Ok(self.compile_load_id(token)),
+            TokenKind::Identifier => Ok(self.compile_load_id(token)?),
             _ => Err(self.error_unexpected(token)),
         }
     }
@@ -227,7 +229,7 @@ impl<V: VM> Compiler<V> {
                 } else {
                     self.expr()?;
                     self.expect(TokenKind::Single(']'))?;
-                    self.emit(Instruction::Set);
+                    self.emit(Instruction::Get);
                 }
             } else if let Some((lp, rp)) = self.pwr_infix(ttext.as_str()) {
                 if pwr > lp {
@@ -271,43 +273,49 @@ impl<V: VM> Compiler<V> {
             offset: 0,
         }
     }
+    fn libs(&mut self) {
+        // print
+        let idx = self.vm.rodata_native(crate::native::bakh_print, 1);
+        self.register_const("print".to_string(), idx);
+    }
     pub(crate) fn compile(&mut self) -> CResult<()> {
+        self.libs();
         self.source()
     }
     pub(crate) fn vm(self) -> V {
         self.vm
     }
-    fn flush_lvalue(&mut self, state: AssignCallState) {
+    fn flush_lvalue(&mut self, state: AssignCallState) -> CResult<()> {
         if let AssignCallState::Identifier(token) = state {
-            let i = self.compile_load_id(token);
+            let i = self.compile_load_id(token)?;
             self.emit(i);
         } else if state == AssignCallState::Index {
             self.emit(Instruction::Get);
         }
+        Ok(())
     }
     fn get_token_text(&self, token: Token) -> String {
         token.text(self.text.clone())
     }
-    fn get_id(&mut self, token: Token) -> (usize, bool) {
+    fn get_id(&mut self, token: Token) -> CResult<(usize, bool)> {
         let name = self.get_token_text(token);
         for (i, c) in self.scopes.iter().enumerate().rev() {
             if let Some(idx) = c.get(&name) {
-                return (*idx, i == 0);
+                return Ok((*idx, i == 0));
             }
         }
-        eprintln!("unknown identifier '{}' at {}", name, token.from);
-        exit(1);
+        return Err(Error::UnknownIdentifier(token));
     }
-    fn compile_load_id(&mut self, token: Token) -> Instruction {
-        let (idx, is_global) = self.get_id(token);
+    fn compile_load_id(&mut self, token: Token) -> CResult<Instruction> {
+        let (idx, is_global) = self.get_id(token)?;
         if is_global {
-            Instruction::Konst(idx)
+            Ok(Instruction::Konst(idx))
         } else {
-            Instruction::Load(idx)
+            Ok(Instruction::Load(idx))
         }
     }
     fn compile_store_id(&mut self, token: Token) -> CResult<Instruction> {
-        let (idx, is_global) = self.get_id(token);
+        let (idx, is_global) = self.get_id(token)?;
         if is_global {
             Err(self.error_immutable(token))
         } else {
@@ -348,18 +356,18 @@ impl<V: VM> Compiler<V> {
                 }
             } else if tkn.is('[') {
                 self.pop()?;
-                self.flush_lvalue(state);
+                self.flush_lvalue(state)?;
                 self.expr()?;
                 self.expect(TokenKind::Single(']'))?;
                 state = AssignCallState::Index;
             } else if tkn.is('.') {
                 self.pop()?;
-                self.flush_lvalue(state);
+                self.flush_lvalue(state)?;
                 self.property()?;
                 state = AssignCallState::Index;
             } else if tkn.is('(') {
                 self.pop()?;
-                self.flush_lvalue(state);
+                self.flush_lvalue(state)?;
                 let count = self.explist(')')?;
                 self.emit(Instruction::Call(count));
                 state = AssignCallState::Call;
@@ -381,6 +389,8 @@ impl<V: VM> Compiler<V> {
         }
         self.close_scope();
         self.pop()?;
+        self.emit(Instruction::Nil);
+        self.emit(Instruction::Ret);
         Ok(())
     }
     fn new_scope(&mut self) {
@@ -407,8 +417,7 @@ impl<V: VM> Compiler<V> {
         self.offset += 1;
         self.curscope().insert(name, idx);
     }
-    fn register_const(&mut self, token: Token, idx: usize) {
-        let name = self.get_token_text(token);
+    fn register_const(&mut self, name: String, idx: usize) {
         if self.scopes.first().unwrap().get(&name).is_some() {
             eprintln!("Variable '{}' previously defined", name);
             exit(1);
@@ -470,14 +479,14 @@ impl<V: VM> Compiler<V> {
     }
     fn function_body(&mut self) -> CResult<bool> {
         let id = self.expect(TokenKind::Identifier)?;
-        let param_count = self.paramlist()?;
+        let param_count = self.paramlist()? as usize;
         let is_main = self.get_token_text(id).as_str() == "main";
         let idx = self.vm.rodata_function(param_count, is_main);
         self.expect(TokenKind::Single('{'))?;
         self.new_scope();
         self.block(TokenKind::Single('}'))?;
         self.close_scope();
-        self.register_const(id, idx);
+        self.register_const(self.get_token_text(id), idx);
         Ok(is_main)
     }
     fn source(&mut self) -> CResult<()> {
