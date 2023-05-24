@@ -10,9 +10,9 @@ use compiler::CResult;
 use scanner::Scanner;
 use std::sync::Arc;
 use text::{Text, Token};
-use vm::BVM;
+use vm::{Value, BVM};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum Error {
     Scanner,
     UnexpectedToken(Token),
@@ -23,6 +23,7 @@ pub(crate) enum Error {
     DivisionByZero,
     CallingNonFunction,
     UnknownIdentifier(Token),
+    MultipleDefinition(String),
 }
 
 #[derive(Default)]
@@ -74,6 +75,24 @@ impl BakhtScript {
             None => Ok(()),
         }
     }
+    fn array_push(&mut self) {
+        let ele = self.vm.pop();
+        if let Value::Array(array) = self.vm.pop() {
+            array.push(ele);
+        }
+    }
+    fn array_pop(&mut self) {
+        if let Value::Array(array) = self.vm.pop() {
+            if let Some(ele) = array.pop() {
+                self.vm.push(ele);
+            }
+        }
+    }
+    fn array_len(&mut self) {
+        if let Value::Array(array) = self.vm.pop() {
+            self.vm.push(Value::Number(array.len() as f32));
+        }
+    }
 }
 
 fn main() {
@@ -86,4 +105,5 @@ fn main() {
     .unwrap();
     bs.fcall(0);
     bs.error().unwrap();
+    bs.reset();
 }

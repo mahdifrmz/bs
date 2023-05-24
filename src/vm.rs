@@ -39,13 +39,13 @@ pub struct Array {
 }
 
 impl Array {
-    fn push(&self, value: Value) {
+    pub(crate) fn push(&self, value: Value) {
         self.inner.borrow_mut().push(value)
     }
-    fn pop(&self) -> Option<Value> {
+    pub(crate) fn pop(&self) -> Option<Value> {
         self.inner.borrow_mut().pop()
     }
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.inner.borrow().len()
     }
     fn get(&self, index: usize) -> Option<Value> {

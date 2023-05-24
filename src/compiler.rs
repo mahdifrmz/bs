@@ -8,7 +8,6 @@ use super::text::Token;
 use super::text::TokenKind;
 use super::vm::VM;
 use super::Text;
-use std::process::exit;
 
 pub(crate) struct Compiler<V: VM> {
     scanner: Scanner,
@@ -264,13 +263,23 @@ impl<V: VM> Compiler<V> {
             offset: 0,
         }
     }
-    fn libs(&mut self) {
+    fn libs(&mut self) -> CResult<()> {
         // print
-        let idx = self.vm.rodata_native(crate::native::bakh_print, 1);
-        self.register_const("print".to_string(), idx);
+        let idx = self.vm.rodata_native(crate::native::bakht_print, 1);
+        self.register_const("print".to_string(), idx)?;
+        // len
+        let idx = self.vm.rodata_native(crate::native::bakht_len, 1);
+        self.register_const("len".to_string(), idx)?;
+        // push
+        let idx = self.vm.rodata_native(crate::native::bakht_push, 2);
+        self.register_const("push".to_string(), idx)?;
+        // pop
+        let idx = self.vm.rodata_native(crate::native::bakht_pop, 1);
+        self.register_const("pop".to_string(), idx)?;
+        Ok(())
     }
     pub(crate) fn compile(&mut self) -> CResult<()> {
-        self.libs();
+        self.libs()?;
         self.source()
     }
     pub(crate) fn vm(self) -> V {
@@ -393,26 +402,26 @@ impl<V: VM> Compiler<V> {
     fn curscope<'a>(&'a mut self) -> &'a mut Scope {
         self.scopes.last_mut().unwrap()
     }
-    fn register_decl(&mut self, token: Token) {
+    fn register_decl(&mut self, token: Token) -> CResult<()> {
         let name = self.get_token_text(token);
         if self.curscope().get(&name).is_some() {
-            eprintln!("Variable '{}' previously defined", name);
-            exit(1);
+            return Err(Error::MultipleDefinition(name));
         }
         let idx = self.offset;
         self.offset += 1;
         self.curscope().insert(name, idx);
+        Ok(())
     }
-    fn register_const(&mut self, name: String, idx: usize) {
+    fn register_const(&mut self, name: String, idx: usize) -> CResult<()> {
         if self.scopes.first().unwrap().get(&name).is_some() {
-            eprintln!("Variable '{}' previously defined", name);
-            exit(1);
+            return Err(Error::MultipleDefinition(name));
         }
         self.curscope().insert(name, idx);
+        Ok(())
     }
     fn var_decl(&mut self) -> CResult<()> {
         let id = self.expect(TokenKind::Identifier)?;
-        self.register_decl(id);
+        self.register_decl(id)?;
         if self.peek()?.is('=') {
             self.pop()?;
             self.expr()?;
@@ -451,12 +460,12 @@ impl<V: VM> Compiler<V> {
             Ok(0)
         } else {
             let id = self.expect(TokenKind::Identifier)?;
-            self.register_decl(id);
+            self.register_decl(id)?;
             let mut param_count = 1;
             while self.peek()?.is(',') {
                 self.pop()?;
                 let id = self.expect(TokenKind::Identifier)?;
-                self.register_decl(id);
+                self.register_decl(id)?;
                 param_count = param_count + 1;
             }
             self.expect(TokenKind::Single(')'))?;
@@ -468,11 +477,11 @@ impl<V: VM> Compiler<V> {
         let param_count = self.paramlist()? as usize;
         let is_main = self.get_token_text(id).as_str() == "main";
         let idx = self.vm.rodata_function(param_count, is_main);
+        self.register_const(self.get_token_text(id), idx)?;
         self.expect(TokenKind::Single('{'))?;
         self.new_scope();
         self.block(TokenKind::Single('}'))?;
         self.close_scope();
-        self.register_const(self.get_token_text(id), idx);
         Ok(is_main)
     }
     fn source(&mut self) -> CResult<()> {
