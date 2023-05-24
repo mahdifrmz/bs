@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 type Scope = HashMap<String, usize>;
 use crate::vm::Instruction;
+use crate::Error;
 
 use super::scanner::Scanner;
 use super::text::Token;
@@ -18,13 +19,6 @@ pub(crate) struct Compiler<V: VM> {
     offset: usize,
 }
 
-#[derive(Debug)]
-pub(crate) enum Error {
-    Scanner,
-    UnexpectedToken(Token),
-    Immutable(Token),
-    NoMainFunction,
-}
 pub(crate) type CResult<T> = Result<T, Error>;
 
 impl<V: VM> Compiler<V> {
@@ -196,7 +190,7 @@ impl<V: VM> Compiler<V> {
             self.expect(TokenKind::Single(')'))?;
         } else if token.text(self.text.clone()).as_str() == "[" {
             let count = self.explist(']')?;
-            self.emit(Instruction::NewArray(count));
+            self.emit(Instruction::Anew(count));
         } else {
             let i = self.compile_atom(token)?;
             self.emit(i);
@@ -328,7 +322,7 @@ impl<V: VM> Compiler<V> {
             AssignCallState::InitialRvalue
         } else if tkn.is('[') {
             let count = self.explist(']')?;
-            self.emit(Instruction::NewArray(count));
+            self.emit(Instruction::Anew(count));
             AssignCallState::InitialRvalue
         } else if tkn.kind == TokenKind::Identifier {
             AssignCallState::Identifier(tkn)

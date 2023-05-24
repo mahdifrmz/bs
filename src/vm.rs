@@ -1,4 +1,9 @@
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    sync::{Arc, Mutex},
+};
+
+use crate::Error;
 
 use super::BakhtScript;
 
@@ -10,14 +15,75 @@ pub(crate) enum Function {
     Native(Native),
 }
 
+#[derive(PartialEq)]
+pub struct Array {
+    inner: RefCell<Vec<Value>>,
+}
+
+impl Array {
+    fn push(&self, value: Value) {
+        self.inner.borrow_mut().push(value)
+    }
+    fn pop(&self) -> Option<Value> {
+        self.inner.borrow_mut().pop()
+    }
+    fn len(&self) -> usize {
+        self.inner.borrow().len()
+    }
+    fn get(&self, index: usize) -> Option<Value> {
+        self.inner.borrow().get(index).cloned()
+    }
+    fn set(&self, index: usize, value: Value) -> bool {
+        let arr = self.inner.borrow_mut();
+        if arr.len() <= index {
+            false
+        } else {
+            self.inner.borrow_mut()[index] = value;
+            true
+        }
+    }
+    fn new(array: Vec<Value>) -> Array {
+        Array {
+            inner: RefCell::new(array),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum Value {
     String(Arc<String>),
-    Array(Arc<Vec<Value>>),
+    Array(Arc<Array>),
     Nil,
     Boolean(bool),
     Number(f32),
     Function(Function),
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Nil, Self::Nil) => true,
+            (Self::Array(l0), Self::Array(r0)) => l0 == r0,
+            (Self::Boolean(l0), Self::Boolean(r0)) => l0 == r0,
+            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
+            (Self::Function(l0), Self::Function(r0)) => match (l0, r0) {
+                (
+                    Function::Bakht {
+                        param_count: _,
+                        address: l0,
+                    },
+                    Function::Bakht {
+                        param_count: _,
+                        address: r0,
+                    },
+                ) => l0 == r0,
+                (Function::Native(l0), Function::Native(r0)) => (*l0 as usize) == (*r0 as usize),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
 }
 
 pub(crate) trait VM {
@@ -25,7 +91,7 @@ pub(crate) trait VM {
     fn emit(&mut self, bytecode: u8);
     fn rodata_number(&mut self, number: f32) -> usize;
     fn rodata_literal(&mut self, literal: String) -> usize;
-    fn run(&mut self, args: Vec<String>) {}
+    fn run(&mut self, argc: usize) {}
     fn reset(&mut self) {}
 }
 
@@ -41,6 +107,7 @@ pub(crate) struct BVM {
     constants: Vec<Value>,
     frames: Vec<Frame>,
     entry: usize,
+    error: Option<Error>,
 }
 
 impl VM for BVM {
@@ -58,15 +125,10 @@ impl VM for BVM {
         self.constants.push(Value::String(Arc::new(literal)));
         idx
     }
-    fn run(&mut self, args: Vec<String>) {
+    fn run(&mut self, argc: usize) {
         let entry = self.constants[self.entry].clone();
         self.push(entry);
-        let mut args = args;
-        for arg in args.drain(..) {
-            let arg = self.string(arg);
-            self.push(arg);
-        }
-        self.fcall(args.len());
+        self.fcall(argc);
         self.process();
     }
     fn rodata_function(&mut self, param_count: u8, entry: bool) -> usize {
@@ -136,10 +198,24 @@ impl BVM {
         (opcode, operand)
     }
     fn process(&mut self) {
-        while *self.ip() != 0 {
+        while self.error.is_none() && *self.ip() != 0 {
             let (opcode, operand) = self.fetch();
             match opcode {
                 0 => self.i_add(),
+                1 => self.i_sub(),
+                2 => self.i_mult(),
+                3 => self.i_div(),
+                4 => self.i_eq(),
+                5 => self.i_ne(),
+                6 => self.i_ge(),
+                7 => self.i_le(),
+                8 => self.i_gt(),
+                9 => self.i_lt(),
+                18 => self.i_nil(),
+                19 => self.i_true(),
+                20 => self.i_false(),
+                21 => self.i_anew(operand),
+                22 => self.i_mod(),
                 _ => panic!(), // TODO
             }
         }
@@ -150,11 +226,158 @@ impl BVM {
     fn i_add(&mut self) {
         let b = self.pop();
         let a = self.pop();
-        let value = match (a, b) {
-            (Value::Number(a), Value::Number(b)) => self.number(a + b),
-            _ => Value::Nil, // TODO
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => {
+                let value = self.number(a + b);
+                self.push(value)
+            }
+            _ => self.error = Some(Error::InvalidOperands),
         };
-        self.push(value)
+    }
+    fn i_sub(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => {
+                let value = self.number(a - b);
+                self.push(value)
+            }
+            _ => self.error = Some(Error::InvalidOperands),
+        };
+    }
+    fn i_mult(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => {
+                let value = self.number(a * b);
+                self.push(value)
+            }
+            _ => self.error = Some(Error::InvalidOperands),
+        };
+    }
+    fn i_div(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => {
+                if b == 0.0 {
+                    self.error = Some(Error::DivisionByZero);
+                } else {
+                    let value = self.number(a / b);
+                    self.push(value)
+                }
+            }
+            _ => self.error = Some(Error::InvalidOperands),
+        };
+    }
+    fn i_mod(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => {
+                if b == 0.0 {
+                    self.error = Some(Error::DivisionByZero);
+                } else {
+                    let value = self.number(a % b);
+                    self.push(value)
+                }
+            }
+            _ => self.error = Some(Error::InvalidOperands),
+        };
+    }
+    fn i_true(&mut self) {
+        self.push(Value::Boolean(true))
+    }
+    fn i_false(&mut self) {
+        self.push(Value::Boolean(false))
+    }
+    fn i_nil(&mut self) {
+        self.push(Value::Nil)
+    }
+    fn i_anew(&mut self, count: usize) {
+        let mut elements = vec![];
+        for _ in 0..count {
+            elements.push(self.pop());
+        }
+        self.push(Value::Array(Arc::new(Array::new(elements))));
+    }
+    fn i_eq(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        self.push(Value::Boolean(a == b));
+    }
+    fn i_ne(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        self.push(Value::Boolean(a != b));
+    }
+    fn i_gt(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 > r0)),
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 > r0)),
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_lt(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 > r0)),
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 > r0)),
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_ge(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 >= r0)),
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 >= r0)),
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_le(&mut self) {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 <= r0)),
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 <= r0)),
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_pop(&mut self, count: usize) {
+        for _ in 0..count {
+            self.pop();
+        }
+    }
+    fn i_get(&mut self) {
+        let idx = self.pop();
+        let val = self.pop();
+        match (val, idx) {
+            (Value::Array(v), Value::Number(i)) => match v.get(i as usize) {
+                Some(ele) => self.push(ele),
+                None => self.error = Some(Error::IndexOutOfBound),
+            },
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_set(&mut self) {
+        let ele = self.pop();
+        let idx = self.pop();
+        let val = self.pop();
+        match (val, idx) {
+            (Value::Array(v), Value::Number(i)) => {
+                if v.set(i as usize, ele) {
+                    self.push(Value::Array(v));
+                } else {
+                    self.error = Some(Error::IndexOutOfBound)
+                }
+            }
+            _ => self.error = Some(Error::InvalidOperands),
+        }
     }
 }
 
@@ -166,6 +389,7 @@ impl Default for BVM {
             constants: Default::default(),
             frames: Default::default(),
             entry: Default::default(),
+            error: None,
         };
         bvm.init();
         bvm
@@ -196,7 +420,7 @@ pub(crate) enum Instruction {
     Nil = 18,
     True = 19,
     False = 20,
-    NewArray(usize) = 21,
+    Anew(usize) = 21,
     Mod = 22,
 }
 
@@ -224,7 +448,7 @@ impl Instruction {
             Instruction::Nil => (18, None),
             Instruction::True => (19, None),
             Instruction::False => (20, None),
-            Instruction::NewArray(o) => (21, Some(o)),
+            Instruction::Anew(o) => (21, Some(o)),
             Instruction::Mod => (22, None),
         }
     }

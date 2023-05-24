@@ -1,3 +1,4 @@
+mod compiler;
 mod scanner;
 #[cfg(test)]
 mod tests;
@@ -7,10 +8,19 @@ mod vm;
 use compiler::CResult;
 use scanner::Scanner;
 use std::sync::Arc;
-use text::Text;
+use text::{Text, Token};
 use vm::{BVM, VM};
 
-mod compiler;
+#[derive(Debug)]
+pub(crate) enum Error {
+    Scanner,
+    UnexpectedToken(Token),
+    Immutable(Token),
+    NoMainFunction,
+    InvalidOperands,
+    IndexOutOfBound,
+    DivisionByZero,
+}
 
 #[derive(Default)]
 struct BakhtScript {
@@ -30,8 +40,8 @@ impl BakhtScript {
         self.vm = compiler.vm();
         Ok(())
     }
-    fn run(&mut self, args: Vec<String>) {
-        self.vm.run(args);
+    fn run(&mut self, argc: usize) {
+        self.vm.run(argc);
     }
 }
 
