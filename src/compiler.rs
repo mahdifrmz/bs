@@ -40,7 +40,7 @@ impl<V: VM> Compiler<V> {
         }
     }
     fn pwr_postfix(&self, op: &str) -> Option<(u32, ())> {
-        if op == "(" || op == "[" || op == "." {
+        if op == "(" || op == "[" {
             Some((59, ()))
         } else {
             None
@@ -172,12 +172,6 @@ impl<V: VM> Compiler<V> {
     fn expr(&mut self) -> CResult<()> {
         self.expr_p(0)
     }
-    fn property(&mut self) -> CResult<()> {
-        let id = self.expect(TokenKind::Identifier)?;
-        let prop = self.vm.rodata_literal(id.text(self.text.clone()));
-        self.emit(Instruction::Konst(prop));
-        Ok(())
-    }
     fn expr_p(&mut self, pwr: u32) -> CResult<()> {
         let token = self.pop()?;
         if let Some((_, rp)) = self.pwr_prefix(token.text(self.text.clone()).as_str()) {
@@ -223,9 +217,6 @@ impl<V: VM> Compiler<V> {
                 if t.kind == TokenKind::Single('(') {
                     let argc = self.explist(')')?;
                     self.emit(Instruction::Call(argc));
-                } else if t.kind == TokenKind::Single('.') {
-                    self.property()?;
-                    self.emit(Instruction::Get)
                 } else {
                     self.expr()?;
                     self.expect(TokenKind::Single(']'))?;
@@ -359,11 +350,6 @@ impl<V: VM> Compiler<V> {
                 self.flush_lvalue(state)?;
                 self.expr()?;
                 self.expect(TokenKind::Single(']'))?;
-                state = AssignCallState::Index;
-            } else if tkn.is('.') {
-                self.pop()?;
-                self.flush_lvalue(state)?;
-                self.property()?;
                 state = AssignCallState::Index;
             } else if tkn.is('(') {
                 self.pop()?;

@@ -1,9 +1,7 @@
 use super::Text;
 use crate::text::{Token, TokenKind};
 
-const SINGLE_CHARS: &[char] = &[
-    '+', '-', '*', '/', '%', '[', ']', '(', ')', '{', '}', ',', '.',
-];
+const SINGLE_CHARS: &[char] = &['+', '-', '*', '/', '%', '[', ']', '(', ')', '{', '}', ','];
 const EQUAL_FOLLOW: &[char] = &['=', '>', '<', '!'];
 
 pub(crate) struct Scanner {
