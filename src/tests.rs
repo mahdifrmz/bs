@@ -9,7 +9,6 @@ struct MockVM {
 }
 
 impl VM for MockVM {
-    fn run(&mut self, _: usize) {}
     fn rodata_function(&mut self, _: u8, _: bool) -> usize {
         0
     }

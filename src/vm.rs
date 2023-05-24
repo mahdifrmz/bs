@@ -1,7 +1,4 @@
-use std::{
-    cell::RefCell,
-    sync::{Arc, Mutex},
-};
+use std::{cell::RefCell, sync::Arc};
 
 use crate::Error;
 
@@ -48,53 +45,10 @@ impl Array {
         }
     }
 }
-#[derive(PartialEq)]
-pub struct Bstring {
-    inner: RefCell<String>,
-}
-
-impl Bstring {
-    fn push(&self, c: char) {
-        self.inner.borrow_mut().push(c)
-    }
-    fn pop(&self) -> Option<char> {
-        self.inner.borrow_mut().pop()
-    }
-    fn len(&self) -> usize {
-        self.inner.borrow().len()
-    }
-    fn get(&self, index: usize) -> Option<Bstring> {
-        self.inner
-            .borrow()
-            .chars()
-            .nth(index)
-            .map(|c| Bstring::new(c.to_string()))
-    }
-    fn set(&self, index: usize, c: char) -> bool {
-        let arr = self.inner.borrow_mut();
-        if arr.len() <= index {
-            false
-        } else {
-            let c = c.to_string();
-            self.inner
-                .borrow_mut()
-                .replace_range(index..index + 1, c.as_str());
-            true
-        }
-    }
-    fn value(&self) -> String {
-        self.inner.borrow().to_string()
-    }
-    fn new(s: String) -> Bstring {
-        Bstring {
-            inner: RefCell::new(s),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(crate) enum Value {
-    String(Arc<Bstring>),
+    String(Arc<String>),
     Array(Arc<Array>),
     Nil,
     Boolean(bool),
@@ -134,13 +88,10 @@ pub(crate) trait VM {
     fn emit(&mut self, bytecode: u8);
     fn rodata_number(&mut self, number: f32) -> usize;
     fn rodata_literal(&mut self, literal: String) -> usize;
-    fn run(&mut self, argc: usize) {}
-    fn reset(&mut self) {}
 }
 
 pub(crate) struct Frame {
     ip: usize,
-    sp: usize,
     bp: usize,
 }
 
@@ -165,58 +116,52 @@ impl VM for BVM {
     }
     fn rodata_literal(&mut self, literal: String) -> usize {
         let idx = self.constants.len();
-        self.constants
-            .push(Value::String(Arc::new(Bstring::new(literal))));
+        self.constants.push(Value::String(Arc::new(literal)));
         idx
-    }
-    fn run(&mut self, argc: usize) {
-        let entry = self.constants[self.entry].clone();
-        self.push(entry);
-        self.fcall(argc);
-        self.process();
     }
     fn rodata_function(&mut self, param_count: u8, entry: bool) -> usize {
         let address = self.bin.len();
         let idx = self.constants.len();
-        self.constants.push(Value::Function(Function::Bakht {
+        let val = Value::Function(Function::Bakht {
             param_count,
             address,
-        }));
+        });
+        self.constants.push(val.clone());
         if entry {
             self.entry = idx;
         }
+        self.push(val);
         idx
-    }
-    fn reset(&mut self) {
-        self.bin.clear();
-        self.constants.clear();
-        self.stack.clear();
-        self.init();
     }
 }
 
 impl BVM {
-    fn init(&mut self) {
-        self.frames.push(Frame {
-            ip: 0,
-            sp: 0,
-            bp: 0,
-        })
+    pub fn fcall(&mut self, argc: usize) {
+        self.i_call(argc)
     }
-    fn push(&mut self, value: Value) {
+    pub fn reset(&mut self) {
+        self.bin.clear();
+        self.constants.clear();
+        self.stack.clear();
+        self.frames.clear();
+        self.error = None;
+        self.entry = 0;
+        self.init();
+    }
+    pub fn init(&mut self) {
+        self.frames.push(Frame { ip: 0, bp: 0 })
+    }
+    pub fn push(&mut self, value: Value) {
         self.stack.push(value)
     }
-    fn pop(&mut self) -> Value {
+    pub fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
-    }
-    fn fcall(&mut self, arg_count: usize) {
-        // TODO
-    }
-    fn string(&self, s: String) -> Value {
-        Value::String(Arc::new(Bstring::new(s)))
     }
     fn ip(&mut self) -> &mut usize {
         &mut self.frames.last_mut().unwrap().ip
+    }
+    fn bp(&mut self) -> usize {
+        self.frames.last_mut().unwrap().bp
     }
     fn read(&mut self) -> u8 {
         let ip = *self.ip();
@@ -255,14 +200,68 @@ impl BVM {
                 7 => self.i_le(),
                 8 => self.i_gt(),
                 9 => self.i_lt(),
+                10 => self.i_set(),
+                11 => self.i_get(),
+                12 => self.i_pop(operand),
+                13 => self.i_ret(),
+                14 => self.i_load(operand),
+                15 => self.i_store(operand),
+                16 => self.i_call(operand),
+                17 => self.i_konst(operand),
                 18 => self.i_nil(),
                 19 => self.i_true(),
                 20 => self.i_false(),
                 21 => self.i_anew(operand),
                 22 => self.i_mod(),
+                23 => self.i_apush(),
+                24 => self.i_apop(),
+                25 => self.i_alen(),
                 _ => panic!(), // TODO
             }
         }
+    }
+    fn i_apush(&mut self) {
+        let ele = self.pop();
+        let value = self.pop();
+        match &value {
+            Value::Array(a) => {
+                a.push(ele);
+                self.push(value)
+            }
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_apop(&mut self) {
+        let value = self.pop();
+        match value {
+            Value::Array(a) => match a.pop() {
+                Some(e) => self.push(e),
+                None => self.error = Some(Error::IndexOutOfBound),
+            },
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_alen(&mut self) {
+        let value = self.pop();
+        match value {
+            Value::Array(a) => self.push(Value::Number(a.len() as f32)),
+            Value::String(s) => self.push(Value::Number(s.len() as f32)),
+            _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn i_load(&mut self, operand: usize) {
+        let address = self.bp() + operand;
+        let value = self.stack[address].clone();
+        self.push(value)
+    }
+    fn i_store(&mut self, operand: usize) {
+        let value = self.pop();
+        let address = self.bp() + operand;
+        self.stack[address] = value;
+    }
+    fn i_konst(&mut self, operand: usize) {
+        let value = self.constants[operand].clone();
+        self.push(value)
     }
     fn number(&mut self, value: f32) -> Value {
         Value::Number(value)
@@ -361,9 +360,7 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 > r0)),
-            (Value::String(l0), Value::String(r0)) => {
-                self.push(Value::Boolean(l0.value() > r0.value()))
-            }
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 > r0)),
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -372,9 +369,7 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 > r0)),
-            (Value::String(l0), Value::String(r0)) => {
-                self.push(Value::Boolean(l0.value() > r0.value()))
-            }
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 > r0)),
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -383,9 +378,7 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 >= r0)),
-            (Value::String(l0), Value::String(r0)) => {
-                self.push(Value::Boolean(l0.value() >= r0.value()))
-            }
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 >= r0)),
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -394,9 +387,7 @@ impl BVM {
         let a = self.pop();
         match (a, b) {
             (Value::Number(l0), Value::Number(r0)) => self.push(Value::Boolean(l0 <= r0)),
-            (Value::String(l0), Value::String(r0)) => {
-                self.push(Value::Boolean(l0.value() <= r0.value()))
-            }
+            (Value::String(l0), Value::String(r0)) => self.push(Value::Boolean(l0 <= r0)),
             _ => self.error = Some(Error::InvalidOperands),
         }
     }
@@ -404,6 +395,14 @@ impl BVM {
         for _ in 0..count {
             self.pop();
         }
+    }
+    fn i_ret(&mut self) {
+        let yld = self.pop();
+        while self.sp() != self.bp() {
+            self.pop();
+        }
+        self.frames.pop();
+        self.push(yld);
     }
     fn i_get(&mut self) {
         let idx = self.pop();
@@ -413,8 +412,8 @@ impl BVM {
                 Some(ele) => self.push(ele),
                 None => self.error = Some(Error::IndexOutOfBound),
             },
-            (Value::String(v), Value::Number(i)) => match v.get(i as usize) {
-                Some(ele) => self.push(Value::String(Arc::new(ele))),
+            (Value::String(v), Value::Number(i)) => match v.chars().nth(i as usize) {
+                Some(ele) => self.push(Value::String(Arc::new(ele.to_string()))),
                 None => self.error = Some(Error::IndexOutOfBound),
             },
             _ => self.error = Some(Error::InvalidOperands),
@@ -433,6 +432,35 @@ impl BVM {
                 }
             }
             _ => self.error = Some(Error::InvalidOperands),
+        }
+    }
+    fn sp(&self) -> usize {
+        self.stack.len()
+    }
+    fn i_call(&mut self, argc: usize) {
+        let func = self.stack.remove(self.sp() - 1 - argc);
+        match func {
+            Value::Function(f) => match f {
+                Function::Bakht {
+                    param_count,
+                    address,
+                } => {
+                    if argc >= param_count as usize {
+                        self.frames.push(Frame {
+                            ip: address,
+                            bp: self.sp() - argc,
+                        });
+                        self.process();
+                    }
+                }
+                Function::Native(f) => {
+                    let vm = std::mem::take(self);
+                    let mut bs = BakhtScript { vm };
+                    f(&mut bs);
+                    *self = bs.vm;
+                }
+            },
+            _ => self.error = Some(Error::CallingNonFunction),
         }
     }
 }
@@ -478,6 +506,9 @@ pub(crate) enum Instruction {
     False = 20,
     Anew(usize) = 21,
     Mod = 22,
+    Apush = 23,
+    Apop = 24,
+    Alen = 25,
 }
 
 impl Instruction {
@@ -506,6 +537,9 @@ impl Instruction {
             Instruction::False => (20, None),
             Instruction::Anew(o) => (21, Some(o)),
             Instruction::Mod => (22, None),
+            Instruction::Apush => (23, None),
+            Instruction::Apop => (24, None),
+            Instruction::Alen => (25, None),
         }
     }
 }

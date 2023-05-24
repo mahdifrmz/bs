@@ -9,7 +9,7 @@ use compiler::CResult;
 use scanner::Scanner;
 use std::sync::Arc;
 use text::{Text, Token};
-use vm::{BVM, VM};
+use vm::BVM;
 
 #[derive(Debug)]
 pub(crate) enum Error {
@@ -20,6 +20,7 @@ pub(crate) enum Error {
     InvalidOperands,
     IndexOutOfBound,
     DivisionByZero,
+    CallingNonFunction,
 }
 
 #[derive(Default)]
@@ -28,6 +29,9 @@ struct BakhtScript {
 }
 
 impl BakhtScript {
+    fn fcall(&mut self, argc: usize) {
+        self.vm.fcall(argc)
+    }
     fn reset(&mut self) {
         self.vm.reset();
     }
@@ -40,9 +44,6 @@ impl BakhtScript {
         self.vm = compiler.vm();
         Ok(())
     }
-    fn run(&mut self, argc: usize) {
-        self.vm.run(argc);
-    }
 }
 
 fn main() {
@@ -53,4 +54,5 @@ fn main() {
             .as_str(),
     )
     .unwrap();
+    bs.fcall(0);
 }
