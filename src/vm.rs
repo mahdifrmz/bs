@@ -282,6 +282,12 @@ impl BVM {
                 let value = self.number(a + b);
                 self.push(value)
             }
+            (Value::String(a), Value::String(b)) => {
+                let mut c = a.to_string();
+                c.push_str(b.as_str());
+                let value = Value::String(Arc::new(c));
+                self.push(value)
+            }
             _ => self.error = Some(Error::InvalidOperands),
         };
     }
