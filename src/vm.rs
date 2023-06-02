@@ -114,6 +114,7 @@ pub(crate) struct BVM {
 impl VM for BVM {
     // FIXME
     fn emit(&mut self, bytecode: u8) {
+        println!("::{}", bytecode);
         self.bin.push(bytecode);
     }
     fn rodata_number(&mut self, number: f32) -> usize {

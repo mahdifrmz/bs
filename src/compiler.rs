@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 type Scope = HashMap<String, usize>;
+use crate::assemble::encode;
 use crate::bin::Instruction;
 use crate::Error;
 
@@ -77,45 +78,8 @@ impl<V: VM> Compiler<V> {
             Ok(t)
         }
     }
-    fn encode(&self, instruction: Instruction) -> Bytecode {
-        let i = instruction.encode_params();
-        let opcode = i.0 as u8;
-        let operand = i.1 as Option<usize>;
-        let mut bytecode = Bytecode::default();
-        bytecode.bytes[0] = opcode;
-        bytecode.len = 1;
-        if let Some(mut o) = operand {
-            if o > 0xffffffff {
-                bytecode.bytes[0] = bytecode.bytes[0] | 0b_1100_0000;
-                bytecode.len = 9;
-                for i in 1..9 {
-                    bytecode.bytes[i] = (o & 0xff) as u8;
-                    o = o >> 8;
-                }
-            } else if o > 0xffff {
-                bytecode.bytes[0] = bytecode.bytes[0] | 0b_1000_0000;
-                bytecode.len = 5;
-                for i in 1..5 {
-                    bytecode.bytes[i] = (o & 0xff) as u8;
-                    o = o >> 8;
-                }
-            } else if o > 0xff {
-                bytecode.bytes[0] = bytecode.bytes[0] | 0b_0100_0000;
-                bytecode.len = 3;
-                for i in 1..3 {
-                    bytecode.bytes[i] = (o & 0xff) as u8;
-                    o = o >> 8;
-                }
-            } else {
-                bytecode.bytes[0] = bytecode.bytes[0];
-                bytecode.len = 2;
-                bytecode.bytes[1] = o as u8;
-            }
-        }
-        bytecode
-    }
     fn emit(&mut self, instruction: Instruction) {
-        let bytecode = self.encode(instruction);
+        let bytecode = encode(instruction);
         for i in 0..bytecode.len {
             self.vm.emit(bytecode.bytes[i as usize])
         }
@@ -518,10 +482,4 @@ impl AssignCallState {
             AssignCallState::Identifier(_) | AssignCallState::Index => true,
         }
     }
-}
-
-#[derive(Default)]
-struct Bytecode {
-    bytes: [u8; 9],
-    len: u8,
 }

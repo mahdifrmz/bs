@@ -1,3 +1,4 @@
+mod assemble;
 mod bin;
 mod compiler;
 mod native;
