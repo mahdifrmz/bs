@@ -1,5 +1,5 @@
 use super::{compiler::Compiler, vm::VM};
-use crate::{scanner::Scanner, vm::Instruction};
+use crate::{bin::Instruction, scanner::Scanner};
 use std::sync::Arc;
 
 #[derive(Default)]
