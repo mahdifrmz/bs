@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 type Scope = HashMap<String, usize>;
-use crate::vm::Instruction;
+use crate::bin::Instruction;
 use crate::Error;
 
 use super::scanner::Scanner;

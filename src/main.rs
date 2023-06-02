@@ -1,3 +1,4 @@
+mod bin;
 mod compiler;
 mod native;
 mod scanner;

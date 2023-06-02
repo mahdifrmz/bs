@@ -1,31 +1,7 @@
 use super::BakhtScript;
-use crate::Error;
+use crate::{bin::*, Error};
 use std::{cell::RefCell, sync::Arc};
 pub(crate) type Native = fn(&mut BakhtScript);
-
-const IADD: u8 = 0x0;
-const ISUB: u8 = 0x1;
-const IMULT: u8 = 0x2;
-const IDIV: u8 = 0x3;
-const IEQ: u8 = 0x4;
-const INE: u8 = 0x5;
-const IGE: u8 = 0x6;
-const ILE: u8 = 0x7;
-const IGT: u8 = 0x8;
-const ILT: u8 = 0x9;
-const ISET: u8 = 0xa;
-const IGET: u8 = 0xb;
-const IPOP: u8 = 0x2c;
-const IRET: u8 = 0xd;
-const ILOAD: u8 = 0x2e;
-const ISTORE: u8 = 0x2f;
-const ICALL: u8 = 0x30;
-const IKONST: u8 = 0x31;
-const INIL: u8 = 0x12;
-const ITRUE: u8 = 0x13;
-const IFALSE: u8 = 0x14;
-const IANEW: u8 = 0x35;
-const IMOD: u8 = 0x16;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Function {
@@ -506,63 +482,5 @@ impl Default for BVM {
         };
         bvm.init();
         bvm
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub(crate) enum Instruction {
-    Add = IADD,
-    Sub = ISUB,
-    Mult = IMULT,
-    Div = IDIV,
-    Eq = IEQ,
-    Ne = INE,
-    Ge = IGE,
-    Le = ILE,
-    Gt = IGT,
-    Lt = ILT,
-    Set = ISET,
-    Get = IGET,
-    Pop(usize) = IPOP,
-    Ret = IRET,
-    Load(usize) = ILOAD,
-    Store(usize) = ISTORE,
-    Call(usize) = ICALL,
-    Konst(usize) = IKONST,
-    Nil = INIL,
-    True = ITRUE,
-    False = IFALSE,
-    Anew(usize) = IANEW,
-    Mod = IMOD,
-}
-
-impl Instruction {
-    pub(crate) fn encode_params(self) -> (u8, Option<usize>) {
-        match self {
-            Instruction::Add => (IADD, None),
-            Instruction::Sub => (ISUB, None),
-            Instruction::Mult => (IMULT, None),
-            Instruction::Div => (IDIV, None),
-            Instruction::Eq => (IEQ, None),
-            Instruction::Ne => (INE, None),
-            Instruction::Ge => (IGE, None),
-            Instruction::Le => (ILE, None),
-            Instruction::Gt => (IGT, None),
-            Instruction::Lt => (ILT, None),
-            Instruction::Set => (ISET, None),
-            Instruction::Get => (IGET, None),
-            Instruction::Pop(o) => (IPOP, Some(o)),
-            Instruction::Ret => (IRET, None),
-            Instruction::Load(o) => (ILOAD, Some(o)),
-            Instruction::Store(o) => (ISTORE, Some(o)),
-            Instruction::Call(o) => (ICALL, Some(o)),
-            Instruction::Konst(o) => (IKONST, Some(o)),
-            Instruction::Nil => (INIL, None),
-            Instruction::True => (ITRUE, None),
-            Instruction::False => (IFALSE, None),
-            Instruction::Anew(o) => (IANEW, Some(o)),
-            Instruction::Mod => (IMOD, None),
-        }
     }
 }
