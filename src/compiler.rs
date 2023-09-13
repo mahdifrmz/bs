@@ -81,7 +81,7 @@ impl<V: VM> Compiler<V> {
     fn emit(&mut self, instruction: Instruction) {
         let bytecode = encode(instruction);
         for i in 0..bytecode.len {
-            self.vm.emit(bytecode.bytes[i as usize])
+            self.vm.emit(bytecode.bytes[i as usize]);
         }
     }
     fn expect(&mut self, kind: TokenKind) -> CResult<Token> {
@@ -412,9 +412,23 @@ impl<V: VM> Compiler<V> {
             while !self.peek()?.is('}') && self.peek()?.kind != TokenKind::EOF {
                 self.pop()?;
             }
+        } else if self.peek()?.kind == TokenKind::If {
+            self.if_stmt()?;
         } else {
             self.assign_call()?;
         }
+        Ok(())
+    }
+    fn seek(&mut self, kind: TokenKind) -> CResult<bool> {
+        Ok(true)
+    }
+    fn if_stmt(&mut self) -> CResult<()> {
+        self.pop()?;
+        self.expr()?;
+        self.expect(TokenKind::Single('{'))?;
+        self.new_scope();
+        while self.peek()?.kind != TokenKind::Single('}') || self.peek()?.kind != TokenKind::EOF {}
+        self.expect(TokenKind::Single('}'))?;
         Ok(())
     }
     fn paramlist(&mut self) -> CResult<u8> {

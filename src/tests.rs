@@ -16,8 +16,9 @@ impl VM for MockVM {
         0
     }
 
-    fn emit(&mut self, bytecode: u8) {
-        self.bin.push(bytecode)
+    fn emit(&mut self, bytecode: u8) -> usize {
+        self.bin.push(bytecode);
+        0
     }
 
     fn rodata_number(&mut self, _: f32) -> usize {
@@ -31,6 +32,8 @@ impl VM for MockVM {
         self.cidx = self.cidx + 1;
         cidx
     }
+
+    fn edit(&mut self, _: u8, _: usize) {}
 }
 
 impl MockVM {

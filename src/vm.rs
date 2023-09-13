@@ -92,7 +92,8 @@ impl PartialEq for Value {
 pub(crate) trait VM {
     fn rodata_function(&mut self, param_count: usize, entry: bool) -> usize;
     fn rodata_native(&mut self, native: Native, param_count: usize) -> usize;
-    fn emit(&mut self, bytecode: u8);
+    fn emit(&mut self, bytecode: u8) -> usize;
+    fn edit(&mut self, bytecode: u8, address: usize);
     fn rodata_number(&mut self, number: f32) -> usize;
     fn rodata_literal(&mut self, literal: String) -> usize;
 }
@@ -113,9 +114,14 @@ pub(crate) struct BVM {
 
 impl VM for BVM {
     // FIXME
-    fn emit(&mut self, bytecode: u8) {
+    fn emit(&mut self, bytecode: u8) -> usize {
         println!("::{}", bytecode);
+        let address = self.bin.len();
         self.bin.push(bytecode);
+        address
+    }
+    fn edit(&mut self, bytecode: u8, address: usize) {
+        self.bin[address] = bytecode;
     }
     fn rodata_number(&mut self, number: f32) -> usize {
         let idx = self.constants.len();
